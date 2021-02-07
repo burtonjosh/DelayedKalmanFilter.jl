@@ -1,0 +1,13 @@
+name = "DelayedKalmanFilter"
+uuid = "e7b67432-a7e4-4c49-9822-a0c26f350161"
+authors = ["Joshua Burton"]
+version = "0.1.0"
+
+[compat]
+julia = "1.4.1"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
