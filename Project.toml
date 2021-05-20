@@ -3,8 +3,13 @@ uuid = "e7b67432-a7e4-4c49-9822-a0c26f350161"
 authors = ["Joshua Burton"]
 version = "0.1.0"
 
+[deps]
+ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+
 [compat]
-julia = "1.4.1"
+ForwardDiff = "0.10"
+julia = "1"
 
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
