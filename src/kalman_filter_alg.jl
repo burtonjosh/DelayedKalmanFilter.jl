@@ -93,7 +93,7 @@ function kalman_filter(protein_at_observations,model_parameters,measurement_vari
 
     # between the prediction and update steps we record the mean and sd for our likelihood, and the derivatives of the mean and variance for the
     # derivative of the likelihood wrt the parameters
-        predicted_observation_distributions[observation_index] = kalman_observation_distribution_parameters(predicted_observation_distributions,
+        predicted_observation_distributions[observation_index+1] = kalman_observation_distribution_parameters(predicted_observation_distributions,
                                                                                                             current_observation,
                                                                                                             state_space_mean,
                                                                                                             state_space_variance,
@@ -102,7 +102,7 @@ function kalman_filter(protein_at_observations,model_parameters,measurement_vari
                                                                                                             measurement_variance,
                                                                                                             observation_index)
 
-        predicted_observation_mean_derivatives[observation_index], predicted_observation_variance_derivatives[observation_index] = kalman_observation_derivatives(predicted_observation_mean_derivatives,
+        predicted_observation_mean_derivatives[observation_index+1], predicted_observation_variance_derivatives[observation_index+1] = kalman_observation_derivatives(predicted_observation_mean_derivatives,
                                                                                                                                                                   predicted_observation_variance_derivatives,
                                                                                                                                                                   current_observation,
                                                                                                                                                                   state_space_mean_derivative,
@@ -221,13 +221,14 @@ function kalman_filter_state_space_initialisation(protein_at_observations,model_
 
     # set the mRNA and protein variance at negative times to the LNA approximation
     initial_mRNA_scaling = 20.0
-    initial_mRNA_variance = state_space_mean[1,2]*initial_mRNA_scaling
-    state_space_variance[diagind(state_space_variance[1:initial_number_of_states,1:initial_number_of_states])] = fill(initial_mRNA_variance,initial_number_of_states)
-
     initial_protein_scaling = 100.0
+    initial_mRNA_variance = state_space_mean[1,2]*initial_mRNA_scaling
     initial_protein_variance = state_space_mean[1,3]*initial_protein_scaling
-    state_space_variance[diagind(state_space_variance[total_number_of_states+1:total_number_of_states + initial_number_of_states,
-                                                      total_number_of_states+1:total_number_of_states + initial_number_of_states])] = fill(initial_protein_variance,initial_number_of_states)
+    # diagm(diagind(A)[1 .<= diagind(A).< initial_number_of_states])
+    for diag_index in 1:total_number_of_states
+        state_space_variance[diag_index,diag_index] = initial_mRNA_variance
+        state_space_variance[diag_index + total_number_of_states,diag_index + total_number_of_states] = initial_protein_variance
+    end #for
 
     observation_transform = [0.0 1.0]
 
@@ -235,17 +236,10 @@ function kalman_filter_state_space_initialisation(protein_at_observations,model_
     predicted_observation_distributions[1,1] = 0
     predicted_observation_distributions[1,2] = dot(observation_transform,state_space_mean[initial_number_of_states,2:3])
 
-
     last_predicted_covariance_matrix = state_space_variance[[initial_number_of_states,total_number_of_states+initial_number_of_states],
                                                             [initial_number_of_states,total_number_of_states+initial_number_of_states]]
-    # for short_row_index, long_row_index in enumerate([initial_number_of_states-1,
-    #                                                   total_number_of_states+initial_number_of_states-1]):
-    #     for short_column_index, long_column_index in enumerate([initial_number_of_states -1,
-    #                                                             total_number_of_states+initial_number_of_states-1]):
-    #         last_predicted_covariance_matrix[short_row_index,short_column_index] = state_space_variance[long_row_index,
-    #                                                                                                     long_column_index]
 
-    predicted_observation_distributions[1,2] = dot(observation_transform,last_predicted_covariance_matrix*transpose(observation_transform)) + measurement_variance
+    predicted_observation_distributions[1,3] = dot(observation_transform,last_predicted_covariance_matrix*transpose(observation_transform)) + measurement_variance
 
     ####################################################################
     ####################################################################
@@ -426,8 +420,11 @@ function kalman_observation_distribution_parameters(predicted_observation_distri
 
     observation_transform = [0.0 1.0]
 
-    predicted_observation_distributions[observation_index,1] = current_observation[1]
-    predicted_observation_distributions[observation_index,2] = dot(observation_transform,state_space_mean[current_number_of_states,[1,2]])
+    predicted_observation_distributions[observation_index+1,1] = current_observation[1]
+    println(current_number_of_states)
+    println(state_space_mean[current_number_of_states,[1,2]])
+    println(dot(observation_transform,state_space_mean[current_number_of_states,[1,2]]))
+    predicted_observation_distributions[observation_index+1,2] = dot(observation_transform,state_space_mean[current_number_of_states,[2,3]])
 
     last_predicted_covariance_matrix = state_space_variance[[current_number_of_states,
                                                              total_number_of_states+current_number_of_states],
@@ -441,9 +438,9 @@ function kalman_observation_distribution_parameters(predicted_observation_distri
     #         last_predicted_covariance_matrix[short_row_index,short_column_index] = state_space_variance[long_row_index,
     #                                                                                              long_column_index]
 
-    predicted_observation_distributions[observation_index,3] = dot(observation_transform,last_predicted_covariance_matrix*transpose(observation_transform)) + measurement_variance
+    predicted_observation_distributions[observation_index+1,3] = dot(observation_transform,last_predicted_covariance_matrix*transpose(observation_transform)) + measurement_variance
 
-    return predicted_observation_distributions[observation_index]
+    return predicted_observation_distributions[observation_index+1]
 end # function
 
 """
