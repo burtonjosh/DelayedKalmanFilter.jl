@@ -46,6 +46,7 @@ jobs:
       - uses: julia-actions/julia-uploadcoveralls@v1
         env:
           COVERALLS_TOKEN: ${{ secrets.COVERALLS_TOKEN }}
+          continue-on-error: true
   docs:
     name: Documentation
     runs-on: ubuntu-latest
