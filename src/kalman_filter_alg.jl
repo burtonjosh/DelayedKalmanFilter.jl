@@ -68,6 +68,13 @@ function kalman_filter(protein_at_observations,model_parameters,measurement_vari
     # for observation_index, current_observation in enumerate(protein_at_observations[1:]):
     for observation_index in 1:(size(protein_at_observations,1)-1)
         current_observation = protein_at_observations[1 + observation_index,:]
+        saving_path = string(pwd(),"/test/output/");
+        if observation_index == 1
+            writedlm(string(saving_path,"state_space_mean_before_pred.csv"),state_space_mean,",");
+            writedlm(string(saving_path,"state_space_variance_before_pred.csv"),state_space_variance,",");
+            writedlm(string(saving_path,"state_space_mean_div_before_pred.csv"),state_space_mean_derivative,",");
+            writedlm(string(saving_path,"state_space_variance_div_before_pred.csv"),state_space_variance_derivative,",");
+        end
         state_space_mean, state_space_variance, state_space_mean_derivative, state_space_variance_derivative = kalman_prediction_step(state_space_mean,
                                                                                                                                   state_space_variance,
                                                                                                                                   state_space_mean_derivative,
@@ -75,6 +82,12 @@ function kalman_filter(protein_at_observations,model_parameters,measurement_vari
                                                                                                                                   current_observation,
                                                                                                                                   model_parameters,
                                                                                                                                   observation_time_step)
+        if observation_index == 1
+            writedlm(string(saving_path,"state_space_mean_after_pred.csv"),state_space_mean,",");
+            writedlm(string(saving_path,"state_space_variance_after_pred.csv"),state_space_variance,",");
+            writedlm(string(saving_path,"state_space_mean_div_after_pred.csv"),state_space_mean_derivative,",");
+            writedlm(string(saving_path,"state_space_variance_div_after_pred.csv"),state_space_variance_derivative,",");
+        end
 
         current_number_of_states = Int64(round(current_observation[1]/observation_time_step))*number_of_hidden_states + initial_number_of_states
 
@@ -212,7 +225,7 @@ function kalman_filter_state_space_initialisation(protein_at_observations,model_
     initial_mRNA_variance = state_space_mean[1,2]*initial_mRNA_scaling
     initial_protein_variance = state_space_mean[1,3]*initial_protein_scaling
     # diagm(diagind(A)[1 .<= diagind(A).< initial_number_of_states])
-    for diag_index in 1:total_number_of_states
+    for diag_index in 1:initial_number_of_states
         state_space_variance[diag_index,diag_index] = initial_mRNA_variance
         state_space_variance[diag_index + total_number_of_states,diag_index + total_number_of_states] = initial_protein_variance
     end #for
@@ -821,7 +834,6 @@ function kalman_prediction_step(state_space_mean,
                                                                                       covariance_derivative_matrix_now_to_past[parameter_index,:,:]*delayed_jacobian_transpose )
           end # for
 
-        # println(current_covariance_derivative_matrix[4,:,:])
         ## d_P(t+Deltat,t+Deltat)/d_theta
 
         hill_function_second_derivative_value = hill_coefficient*(past_protein/repression_threshold)^hill_coefficient*(
@@ -999,7 +1011,9 @@ function kalman_prediction_step(state_space_mean,
                                                                              covariance_matrix_intermediate_to_past*delayed_jacobian_derivative_wrt_repression_transpose )
 
             covariance_matrix_derivative_intermediate_to_next[1,:,:] = covariance_matrix_derivative_intermediate_to_current[1,:,:] + discretisation_time_step*(derivative_of_intermediate_variance_wrt_repression_threshold)
-
+            # if next_time_index == 31 && intermediate_time_index+total_number_of_states == 71
+            #     println(covariance_matrix_derivative_intermediate_to_next[1,:,:])
+            # end #if
             # hill coefficient
             derivative_of_intermediate_variance_wrt_hill_coefficient = ( common_intermediate_state_space_variance_derivative_element[2,:,:] +
                                                                          covariance_matrix_intermediate_to_past*transpose(delayed_jacobian_derivative_wrt_hill_coefficient) )
@@ -1041,10 +1055,19 @@ function kalman_prediction_step(state_space_mean,
 
             # Fill in the big matrix
             for parameter_index in 1:7
+                # println(size(covariance_matrix_derivative_intermediate_to_next))
                 state_space_variance_derivative[parameter_index,[intermediate_time_index,
-                                                                  total_number_of_states+intermediate_time_index],
+                                                                 total_number_of_states+intermediate_time_index],
                                                                 [next_time_index,
                                                                  total_number_of_states+next_time_index]] = covariance_matrix_derivative_intermediate_to_next[parameter_index,:,:]
+                if next_time_index == 31 && intermediate_time_index+total_number_of_states == 71
+                    println(state_space_variance_derivative[parameter_index,[intermediate_time_index,
+                                                                 total_number_of_states+intermediate_time_index],
+                                                                [next_time_index,
+                                                                 total_number_of_states+next_time_index]])
+
+                    println(covariance_matrix_derivative_intermediate_to_next[parameter_index,:,:])
+                end #if
                 # transpose arguments
                 state_space_variance_derivative[parameter_index,[next_time_index,
                                                                  total_number_of_states+next_time_index],
@@ -1219,7 +1242,6 @@ function kalman_update_step(state_space_mean,
     end # for
     # funny indexing with 0:2 instead of (0,1) to make numba happy (this gives a 7 x 2 numpy array)
     predicted_final_state_space_mean_derivative = state_space_mean_derivative[current_number_of_states,:,[1,2]]
-    # println(predicted_final_state_space_mean_derivative[3,:])
 
     # extract covariance derivative matrix up to delay
     # using for loop indexing for numba
@@ -1241,13 +1263,10 @@ function kalman_update_step(state_space_mean,
     for parameter_index in 1:7
         adaptation_coefficient_derivative[parameter_index,:] = (shortened_covariance_derivative_matrix_past_to_final[parameter_index,:,:]*transpose(observation_transform)*helper_inverse -
                                                              (shortened_covariance_matrix_past_to_final*transpose(observation_transform)*observation_transform*(
-                                                             predicted_final_covariance_derivative_matrix[parameter_index,:,:]*transpose(observation_transform)*(helper_inverse^2) )))
+                                                             predicted_final_covariance_derivative_matrix[parameter_index,:,:]*transpose(observation_transform))*(helper_inverse^2) ))
     end #for
-    println(current_number_of_states-discrete_delay)
-    # println(current_number_of_states-discrete_delay)
-    println(shortened_covariance_derivative_matrix_past_to_final[3,current_number_of_states-discrete_delay,end])
-
-    # println(adaptation_coefficient_derivative[3,current_number_of_states-discrete_delay])
+    test2 = shortened_covariance_matrix_past_to_final*transpose(observation_transform)*observation_transform*(
+    predicted_final_covariance_derivative_matrix[3,:,:]*transpose(observation_transform))*(helper_inverse^2)
     # This is d_rho*/d_theta
     updated_stacked_state_space_mean_derivative = zeros(7,2*(discrete_delay+1))
     for parameter_index in 1:7
@@ -1256,7 +1275,6 @@ function kalman_update_step(state_space_mean,
                                                                          dot(observation_transform,predicted_final_state_space_mean)) -
                                                                          adaptation_coefficient*observation_transform*predicted_final_state_space_mean_derivative[parameter_index,:])
     end #for
-
     # unstack the rho into two columns, one with mRNA and one with protein
     updated_state_space_mean_derivative = zeros((discrete_delay+1),7,2)
     for parameter_index in 1:7
@@ -1264,16 +1282,7 @@ function kalman_update_step(state_space_mean,
                                                                         updated_stacked_state_space_mean_derivative[parameter_index,(discrete_delay+2):end])
     end #for
     # Fill in the updated values
-
-    # if current_number_of_states == 40
-    #     println(state_space_mean_derivative[current_number_of_states,4,:])
-    # end #if
-
     state_space_mean_derivative[(current_number_of_states-discrete_delay):current_number_of_states,:,1:2] = updated_state_space_mean_derivative
-
-    # if current_number_of_states == 40
-    #     println(state_space_mean_derivative[current_number_of_states,4,:])
-    # end #if
 
     # This is d_P*/d_theta
     updated_shortened_covariance_derivative_matrix = zeros(7,length(all_indices_up_to_delay),length(all_indices_up_to_delay))

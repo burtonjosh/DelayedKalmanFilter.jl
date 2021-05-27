@@ -3,6 +3,7 @@ module DelayedKalmanFilter
 using ForwardDiff
 using LinearAlgebra
 using Distributions
+using DelimitedFiles
 
 include("kalman_filter_alg.jl")
 include("log_likelihood.jl")
