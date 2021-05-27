@@ -106,7 +106,7 @@ function calculate_log_likelihood_and_derivative_at_parameter_point(protein_at_o
     # now for the computation of the derivative of the negative log likelihood. An expression of this can be found
     # at equation (28) in Mbalawata, Särkkä, Haario (2013)
     observation_transform = [0.0 1.0]
-    helper_inverse = 1.0./predicted_observation_distributions[:,2]
+    helper_inverse = 1.0./predicted_observation_distributions[:,3]
     log_likelihood_derivative = zeros(number_of_parameters)
 
     for parameter_index in 1:number_of_parameters
