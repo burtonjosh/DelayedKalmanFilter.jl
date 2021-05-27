@@ -98,12 +98,6 @@ function kalman_filter(protein_at_observations,model_parameters,measurement_vari
                                                                                                                                                                   current_number_of_states,
                                                                                                                                                                   total_number_of_states,
                                                                                                                                                                   observation_index)
-        if observation_index == 1
-          writedlm(string(saving_path,"state_space_mean_before.csv"),state_space_mean,",");
-          writedlm(string(saving_path,"state_space_variance_before.csv"),state_space_variance,",");
-          writedlm(string(saving_path,"state_space_mean_div_before.csv"),state_space_mean_derivative,",");
-          writedlm(string(saving_path,"state_space_variance_div_before.csv"),state_space_variance_derivative,",");
-        end
         state_space_mean, state_space_variance, state_space_mean_derivative, state_space_variance_derivative = kalman_update_step(state_space_mean,
                                                                                                                                   state_space_variance,
                                                                                                                                   state_space_mean_derivative,
@@ -112,12 +106,6 @@ function kalman_filter(protein_at_observations,model_parameters,measurement_vari
                                                                                                                                   time_delay,
                                                                                                                                   observation_time_step,
                                                                                                                                   measurement_variance)
-      if observation_index == 1
-          writedlm(string(saving_path,"state_space_mean_after.csv"),state_space_mean,",");
-          writedlm(string(saving_path,"state_space_variance_after.csv"),state_space_variance,",");
-          writedlm(string(saving_path,"state_space_mean_div_after.csv"),state_space_mean_derivative,",");
-          writedlm(string(saving_path,"state_space_variance_div_after.csv"),state_space_variance_derivative,",");
-      end
     end # for
     return state_space_mean, state_space_variance, state_space_mean_derivative, state_space_variance_derivative, predicted_observation_distributions, predicted_observation_mean_derivatives, predicted_observation_variance_derivatives
 end # function
