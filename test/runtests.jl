@@ -20,8 +20,8 @@ using Test
 
     # test log likelihood and derivative are correct
     ll, lld = calculate_log_likelihood_and_derivative_at_parameter_point(protein_at_observations,model_parameters,10000.,measurement_variance);
-    @test ll == readdlm(string(loading_path,"log_likelihood_value.csv"),',')[1]
-    @test lld == reshape(readdlm(string(loading_path,"log_likelihood_derivative_value.csv"),','),7)
+    @test ll ≈ readdlm(string(loading_path,"log_likelihood_value.csv"),',')[1]
+    @test lld ≈ reshape(readdlm(string(loading_path,"log_likelihood_derivative_value.csv"),','),7)
 end
 
 # using ForwardDiff
