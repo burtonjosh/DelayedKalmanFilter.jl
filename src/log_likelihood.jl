@@ -26,7 +26,7 @@ Returns
 log_likelihood : float.
     The log of the likelihood of the data.
 """
-function calculate_log_likelihood_at_parameter_point(model_parameters,protein_at_observations,measurement_variance = 10)
+function calculate_log_likelihood_at_parameter_point(protein_at_observations,model_parameters,measurement_variance = 10)
     if any(model_parameters .< 0)
         return -Inf
     end
