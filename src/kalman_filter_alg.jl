@@ -197,14 +197,8 @@ function kalman_filter_state_space_initialisation(protein_at_observations,model_
                                                  model_parameters[6])
 
     state_space_mean = Array{Float64}(undef,(total_number_of_states,3));#zeros((total_number_of_states,3))
-    state_space_mean[1:initial_number_of_states,2] .= steady_state[1] # placeholder until steady state function is implemented
-    state_space_mean[1:initial_number_of_states,3] .= steady_state[2] # placeholder until steady state function is implemented
-                                                            # hes5.calculate_steady_state_of_ode(repression_threshold=model_parameters[1],
-                                                            #                                    hill_coefficient=model_parameters[2],
-                                                            #                                    mRNA_degradation_rate=model_parameters[3],
-                                                            #                                    protein_degradation_rate=model_parameters[4],
-                                                            #                                    basal_transcription_rate=model_parameters[5],
-                                                            #                                    translation_rate=model_parameters[6])
+    state_space_mean[1:initial_number_of_states,2] .= steady_state[1]
+    state_space_mean[1:initial_number_of_states,3] .= steady_state[2]
 
     final_observation_time = protein_at_observations[end,1]
     # assign time entries
