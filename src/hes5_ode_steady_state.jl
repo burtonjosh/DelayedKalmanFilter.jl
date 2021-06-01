@@ -48,9 +48,7 @@ Calculate the steady state of the Hes5 ODE system, for a specific set of paramet
 
 # Returns
 
-- `state_space_mean::Array{Float64,2}`: An array of dimension n x 3, where n is the number of inferred time points.
-    The first column is time, the second column is the mean mRNA, and the third
-    column is the mean protein. Time points are generated every minute
+- `steady_state_solution::Array{Float64,1}`: A 2-element array, giving the steady state for the mRNA and protein respectively.
 """
 function calculate_steady_state_of_ode(repression_threshold,
                                        hill_coefficient,
