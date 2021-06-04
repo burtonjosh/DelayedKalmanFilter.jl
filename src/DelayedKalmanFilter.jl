@@ -4,7 +4,6 @@ using ForwardDiff
 using LinearAlgebra
 using Distributions
 using DelimitedFiles
-using Catalyst
 using DifferentialEquations
 
 include("kalman_filter_alg.jl")
