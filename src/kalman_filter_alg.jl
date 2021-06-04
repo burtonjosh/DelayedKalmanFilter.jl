@@ -828,7 +828,6 @@ function kalman_prediction_step(state_space_mean,
         hill_function_second_derivative_value_wrt_repression = -hill_coefficient^2*((past_protein/repression_threshold)^(hill_coefficient)-1)*(past_protein/repression_threshold)^(hill_coefficient-1)/(
                                                                 repression_threshold^2*((1.0+(past_protein/repression_threshold)^hill_coefficient)^3))
 
-        println(hill_function_second_derivative_value_wrt_repression)
         # instant_jacobian_derivative_wrt_repression = 0
         delayed_jacobian_derivative_wrt_repression = ( [0.0 basal_transcription_rate*hill_function_second_derivative_value*past_mean_derivative[1,2]; 0.0 0.0] .+
                                                        [0.0 basal_transcription_rate*hill_function_second_derivative_value_wrt_repression; 0.0 0.0] )
