@@ -26,7 +26,7 @@ Returns
 log_likelihood : float.
     The log of the likelihood of the data.
 """
-function calculate_log_likelihood_at_parameter_point(protein_at_observations,model_parameters,measurement_variance = 10)
+function calculate_log_likelihood_at_parameter_point(protein_at_observations,model_parameters,measurement_variance)
     if any(model_parameters .< 0)
         return -Inf
     end
@@ -78,17 +78,8 @@ log_likelihood : float.
 log_likelihood_derivative : numpy array.
     The derivative of the log likelihood of the data, wrt each model parameter
 """
-function calculate_log_likelihood_and_derivative_at_parameter_point(protein_at_observations,model_parameters,mean_protein,measurement_variance = 10)
+function calculate_log_likelihood_and_derivative_at_parameter_point(protein_at_observations,model_parameters,mean_protein,measurement_variance)
     number_of_parameters = size(model_parameters,1)
-
-    # if ((uniform(50,2*mean_protein-50).pdf(model_parameters[0]) == 0) or
-    #     (uniform(2,6-2).pdf(model_parameters[1]) == 0) or
-    #     (uniform(np.log(2)/150,np.log(2)/10 - np.log(2)/150).pdf(model_parameters[2]) == 0) or
-    #     (uniform(np.log(2)/150,np.log(2)/10 - np.log(2)/150).pdf(model_parameters[3]) == 0) or
-    #     (uniform(0.01,120-0.01).pdf(model_parameters[4]) == 0) or
-    #     (uniform(0.01,40-0.01).pdf(model_parameters[5]) == 0) or
-    #     (uniform(1,40-1).pdf(model_parameters[6]) == 0) ):
-    #     return -np.inf, np.zeros(number_of_parameters)
 
     _, _, _, _, predicted_observation_distributions, predicted_observation_mean_derivatives, predicted_observation_variance_derivatives = kalman_filter(protein_at_observations,
                                                                                                                                                         model_parameters,
@@ -125,3 +116,36 @@ function calculate_log_likelihood_and_derivative_at_parameter_point(protein_at_o
      end #for
     return log_likelihood, log_likelihood_derivative
 end #function
+
+"""
+todo
+"""
+function log_likelihood_and_derivative_with_prior_and_transformation(protein_at_observations,proposed_position,mean_protein,measurement_variance)
+    number_of_parameters = size(proposed_position,1)
+
+    # reparameterise
+    reparameterised_proposed_position = copy(proposed_position)
+    reparameterised_proposed_position[[3,4,5,6]] .= exp.(reparameterised_proposed_position[[3,4,5,6]])
+
+    # priors
+    if any([pdf(Uniform(50,2*mean_protein),reparameterised_proposed_position[1]) == 0,
+            pdf(Uniform(2,6),reparameterised_proposed_position[2]) == 0,
+            pdf(Uniform(log(2)/150,log(2)/10),reparameterised_proposed_position[3]) == 0,
+            pdf(Uniform(log(2)/150,log(2)/10),reparameterised_proposed_position[4]) == 0,
+            pdf(Uniform(0.01,120),reparameterised_proposed_position[5]) == 0,
+            pdf(Uniform(0.01,40),reparameterised_proposed_position[6]) == 0,
+            pdf(Uniform(1,40),reparameterised_proposed_position[7]) == 0])
+        return -Inf, zeros(number_of_parameters)
+    end
+
+    # quick and dirty clean up (make data start at '0')
+    protein_at_observations[:,1] .-= protein_at_observations[1,1]
+    log_likelihood, log_likelihood_derivative = calculate_log_likelihood_and_derivative_at_parameter_point(protein_at_observations,
+                                                                                                           reparameterised_proposed_position,
+                                                                                                           mean_protein,
+                                                                                                           measurement_variance)
+    for i in [3,4,5,6]
+        log_likelihood_derivative[i] = reparameterised_proposed_position[i]*log_likelihood_derivative[i]
+    end
+    return log_likelihood, log_likelihood_derivative
+end
