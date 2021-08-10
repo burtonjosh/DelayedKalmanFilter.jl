@@ -78,7 +78,7 @@ log_likelihood : float.
 log_likelihood_derivative : numpy array.
     The derivative of the log likelihood of the data, wrt each model parameter
 """
-function calculate_log_likelihood_and_derivative_at_parameter_point(protein_at_observations,model_parameters,mean_protein,measurement_variance)
+function calculate_log_likelihood_and_derivative_at_parameter_point(protein_at_observations,model_parameters,measurement_variance)
     number_of_parameters = size(model_parameters,1)
 
     _, _, _, _, predicted_observation_distributions, predicted_observation_mean_derivatives, predicted_observation_variance_derivatives = kalman_filter(protein_at_observations,
