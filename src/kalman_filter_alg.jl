@@ -9,8 +9,8 @@ Base.@kwdef struct ModelParameters
 end
 
 struct StateSpace
-    mean::AbstractMatrix{<:Real}
-    variance::AbstractMatrix{<:Real}
+    mean::AbstractArray{<:Real}
+    variance::AbstractArray{<:Real}
 end
 
 mutable struct StateAndDistributions
@@ -33,7 +33,7 @@ Function which returns an instance of TimeConstructor, which is defines the numb
 states for various uses in the Kalman filter.
 """
 function TimeConstructorFunction(
-    protein_at_observations::AbstractMatrix{<:Real},
+    protein_at_observations::AbstractArray{<:Real},
     time_delay::Real,
     discretisation_time_step::Real = 1.0
     )
@@ -66,7 +66,7 @@ function distribution_prediction_at_given_time(
     state_space::StateSpace,
     states::TimeConstructor,
     given_time::Int,
-    observation_transform::AbstractMatrix{<:Real},
+    observation_transform::AbstractArray{<:Real},
     measurement_variance::Real
     )
 
@@ -82,7 +82,7 @@ end
 function distribution_prediction_at_given_time(
     state_space::StateSpace,
     states::TimeConstructor,
-    observation_transform::AbstractMatrix{<:Real},
+    observation_transform::AbstractArray{<:Real},
     measurement_variance::Real
     )
 
@@ -111,7 +111,7 @@ copy numbers. This implements the filter described by Calderazzo et al., Bioinfo
 
 # Arguments
 
-- `protein_at_observations::AbstractMatrix{<:Real}`: Observed protein. The dimension is n x 2, where n is the number of observation time points.
+- `protein_at_observations::AbstractArray{<:Real}`: Observed protein. The dimension is n x 2, where n is the number of observation time points.
     The first column is the time, and the second column is the observed protein copy number at
     that time. The filter assumes that observations are generated with a fixed, regular time interval.
 
@@ -126,7 +126,7 @@ copy numbers. This implements the filter described by Calderazzo et al., Bioinfo
 - `state_space_and_distributions::StateAndDistributions`: TODO
 """
 function kalman_filter(
-    protein_at_observations::AbstractMatrix{<:Real},
+    protein_at_observations::AbstractArray{<:Real},
     model_parameters::ModelParameters,
     measurement_variance::Real
     )
@@ -168,7 +168,7 @@ Initialse the state space mean for a given set of time states and the system ste
 """
 function initialise_state_space_mean(
     states::TimeConstructor,
-    steady_state::AbstractMatrix{<:Real}
+    steady_state
     )
 
     state_space_mean = Array{Float64}(undef,(states.total_number_of_states,3))
@@ -187,7 +187,7 @@ Initialse the state space variance for a given set of time states and the system
 """
 function initialise_state_space_variance(
     states::TimeConstructor,
-    steady_state::AbstractMatrix{<:Real};
+    steady_state;
     mRNA_scaling=20.0,
     protein_scaling=100.0
     )
@@ -211,7 +211,7 @@ and then updates them with kalman_update_step.
 
 # Arguments
 
-- `protein_at_observations::AbstractMatrix{<:Real}`: Observed protein. The dimension is n x 2, where n is the number of observation time points.
+- `protein_at_observations::AbstractArray{<:Real}`: Observed protein. The dimension is n x 2, where n is the number of observation time points.
     The first column is the time, and the second column is the observed protein copy number at
     that time. The filter assumes that observations are generated with a fixed, regular time interval.
 
@@ -226,7 +226,7 @@ and then updates them with kalman_update_step.
 - `state_and_distributions::StateAndDistributions`: TODO
 """
 function kalman_filter_state_space_initialisation(
-    protein_at_observations::AbstractMatrix{<:Real},
+    protein_at_observations::AbstractArray{<:Real},
     model_parameters::ModelParameters,
     measurement_variance::Real = 10.0
     )
@@ -253,7 +253,6 @@ function kalman_filter_state_space_initialisation(
 
     # update the past ("negative time")
     current_observation = protein_at_observations[1,:]
-
     state_space = kalman_update_step(state_space,
                                      states,
                                      current_observation,
@@ -275,7 +274,7 @@ approximated using a forward Euler scheme.
 
 - `states::TimeConstructor`: TODO
 
-- `current_observation::AbstractMatrix{<:Real}`: TODO
+- `current_observation::AbstractArray{<:Real}`: TODO
 
 - `model_parameters::ModelParameters`: A ModelParameters object containing the model parameters in the following order:
     repression threshold, hill coefficient, mRNA degradation rate,protein degradation rate, basal transcription rate,
@@ -288,7 +287,7 @@ approximated using a forward Euler scheme.
 function kalman_prediction_step(
     state_space::StateSpace,
     states::TimeConstructor,
-    current_observation::AbstractMatrix{<:Real},
+    current_observation::AbstractArray{<:Real},
     model_parameters::ModelParameters,
     )
     ## name the model parameters
@@ -458,7 +457,7 @@ This assumes that the observations are collected at fixed time intervals.
 
 - `states::TimeConstructor`: TODO
 
-- `current_observation::AbstractMatrix{<:Real}`: TODO
+- `current_observation::AbstractArray{<:Real}`: TODO
 
 - `time_delay::Real`: TODO
 
@@ -472,7 +471,7 @@ This assumes that the observations are collected at fixed time intervals.
 function kalman_update_step(
     state_space::StateSpace,
     states::TimeConstructor,
-    current_observation::AbstractMatrix{<:Real},
+    current_observation::AbstractArray{<:Real},
     time_delay::Real,
     measurement_variance::Real
     )

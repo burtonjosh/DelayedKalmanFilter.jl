@@ -27,7 +27,7 @@ log_likelihood : float.
     The log of the likelihood of the data.
 """
 function calculate_log_likelihood_at_parameter_point(
-    protein_at_observations::AbstractMatrix{<:Real},
+    protein_at_observations::AbstractArray{<:Real},
     model_parameters::ModelParameters,
     measurement_variance::Real
 )
