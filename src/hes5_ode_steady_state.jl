@@ -1,33 +1,27 @@
-# this uses catalyst reaction networks -- probably not optimised for performance
-# function calculate_steady_state_of_ode(repression_threshold,
-#                                        hill_coefficient,
-#                                        mRNA_degradation_rate,
-#                                        protein_degradation_rate,
-#                                        basal_transcription_rate,
-#                                        translation_rate)
-#    # define Hes5 reaction network
-#    hes5_network = @reaction_network begin
-#       hillr(protein,basal_transcription_rate,repression_threshold,hill_coefficient), ∅ --> mRNA
-#       mRNA_degradation_rate, mRNA → ∅
-#       protein_degradation_rate, protein → ∅
-#       translation_rate, mRNA → mRNA + protein
-#    end repression_threshold hill_coefficient mRNA_degradation_rate protein_degradation_rate basal_transcription_rate translation_rate
-#
-#    # parameters [α,K,n,δ,γ,β,μ]
-#    parameters = (repression_threshold,
-#                  hill_coefficient,
-#                  mRNA_degradation_rate,
-#                  protein_degradation_rate,
-#                  basal_transcription_rate,
-#                  translation_rate)
-#    # initial condition [m,p]
-#    u₀ = [40.,50000.]
-#    tspan = (0.0,100.0)
-#    # create the ODEProblem we want to solve
-#    prob = ODEProblem(hes5_network, u₀,tspan,parameters)
-#    sol = solve(prob)
-#
-# end #function
+"""
+Function which defines the HES5 ode system
+"""
+function hes_ode!(du,u,p::ModelParameters,t)
+   du[1] = p.basal_transcription_rate*hill_function(u[2],
+      p.repression_threshold,
+      p.hill_coefficient) - p.mRNA_degradation_rate*u[1]
+   du[2] = p.translation_rate*u[1] - p.protein_degradation_rate*u[2]
+end
+
+"""
+Calculate the Hill function for a given protein molecule number, repression threshold, and hill coefficient.
+
+# Arguments
+
+- `protein::Real`
+
+- `repression_threshold::Real`
+
+- `hill_coefficient::Real`
+"""
+function hill_function(protein,repression_threshold,hill_coefficient)
+   return 1/(1 + (protein/repression_threshold)^hill_coefficient)
+end
 
 """
 Calculate the steady state of the Hes5 ODE system, for a specific set of parameters.
@@ -50,31 +44,10 @@ Calculate the steady state of the Hes5 ODE system, for a specific set of paramet
 
 - `steady_state_solution::Array{Float64,1}`: A 2-element array, giving the steady state for the mRNA and protein respectively.
 """
-function calculate_steady_state_of_ode(repression_threshold,
-                                       hill_coefficient,
-                                       mRNA_degradation_rate,
-                                       protein_degradation_rate,
-                                       basal_transcription_rate,
-                                       translation_rate)
-
-   hill_function(protein,repression_threshold,hill_coefficient) = 1/(1 + (protein/repression_threshold)^hill_coefficient)
-
-   function hes_ode!(du,u,p,t)
-      du[1] = p[5]*hill_function(u[2],p[1],p[2]) - p[3]*u[1]
-      du[2] = p[6]*u[1] - p[4]*u[2]
-   end #function
-
-   parameters = (repression_threshold,
-                 hill_coefficient,
-                 mRNA_degradation_rate,
-                 protein_degradation_rate,
-                 basal_transcription_rate,
-                 translation_rate)
-
-   # initial condition [m,p]
-   initial_guess = [40.,50000.]
-   # create the SteadyStateProblem we want to solve
-   prob = SteadyStateProblem(hes_ode!, initial_guess, parameters)
-   # solve the problem
-   steady_state_solution = solve(prob,SSRootfind())
-end #function
+function calculate_steady_state_of_ode(
+   model_params::ModelParameters;
+   initial_guess = [40.0,50000.0]
+   )
+   prob = SteadyStateProblem(hes_ode!, initial_guess, model_params)
+   return solve(prob,SSRootfind())
+end

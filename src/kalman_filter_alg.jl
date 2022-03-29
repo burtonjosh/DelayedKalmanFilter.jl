@@ -23,27 +23,9 @@ struct TimeConstructor
     observation_time_step
     discretisation_time_step
     discrete_delay
+    initial_number_of_states
     number_of_hidden_states
     total_number_of_states
-end
-
-"""
-Calculate the mean and variance of the Normal approximation of the state space for a given
-time point in the Kalman filtering algorithm
-"""
-function distribution_prediction_at_given_time(
-    state_space::StateSpace,
-    given_time::Int,
-    total_number_of_states::Int,
-    observation_transform
-    )
-
-    mean_prediction = dot(observation_transform,state_space.mean[given_time,2:3])
-    last_predicted_covariance_matrix = state_space.variance[[given_time,total_number_of_states+given_time],
-                                                            [given_time,total_number_of_states+given_time]]
-    variance_prediction = dot(observation_transform,last_predicted_covariance_matrix*transpose(observation_transform)) + measurement_variance
-
-    return Normal(mean_prediction,sqrt(variance_prediction))
 end
 
 """
@@ -74,6 +56,26 @@ function TimeConstructorFunction(
         number_of_hidden_states,
         total_number_of_states
     )
+end
+
+"""
+Calculate the mean and variance of the Normal approximation of the state space for a given
+time point in the Kalman filtering algorithm
+"""
+function distribution_prediction_at_given_time(
+    state_space::StateSpace,
+    given_time::Int,
+    total_number_of_states::Int,
+    observation_transform,
+    measurement_variance
+    )
+
+    mean_prediction = dot(observation_transform,state_space.mean[given_time,2:3])
+    last_predicted_covariance_matrix = state_space.variance[[given_time,total_number_of_states+given_time],
+                                                            [given_time,total_number_of_states+given_time]]
+    variance_prediction = dot(observation_transform,last_predicted_covariance_matrix*transpose(observation_transform)) + measurement_variance
+
+    return Normal(mean_prediction,sqrt(variance_prediction))
 end
 
 """
@@ -130,8 +132,9 @@ function kalman_filter(
     )
 
     time_delay = model_parameters.time_delay
+    observation_transform = [0. 1.]
 
-    number_of_states = TimeConstructor(protein_at_observations,time_delay)
+    number_of_states = TimeConstructorFunction(protein_at_observations,time_delay)
     ## this may not be needed
     number_of_observations = number_of_states.number_of_observations
     observation_time_step = number_of_states.observation_time_step
@@ -162,7 +165,8 @@ function kalman_filter(
         state_space_and_distributions.distributions[observation_index+1] = distribution_prediction_at_given_time(state_space,
                                                                                                                  current_number_of_states,
                                                                                                                  total_number_of_states,
-                                                                                                                 observation_transform)
+                                                                                                                 observation_transform,
+                                                                                                                 measurement_variance)
 
 
         state_space = kalman_update_step(state_space,
@@ -191,7 +195,7 @@ end # function
         An array containing the model parameters in the following order:
         repression_threshold, hill_coefficient, mRNA_degradation_rate,
         protein_degradation_rate, basal_transcription_rate, translation_rate,
-        transcription_delay.
+        time_delay.
 
     measurement_variance : float.
         The variance in our measurement. This is given by Sigma_e in Calderazzo et. al. (2018).
@@ -238,7 +242,7 @@ end # function
 function kalman_filter_state_space_initialisation(protein_at_observations,model_parameters::ModelParameters,measurement_variance::Real = 10.0)
     time_delay = model_parameters.time_delay
 
-    number_of_states = TimeConstructor(protein_at_observations,time_delay) # hidden discretisation_time_step in this function
+    number_of_states = TimeConstructorFunction(protein_at_observations,time_delay) # hidden discretisation_time_step in this function
     ## this may not be needed
     number_of_observations = number_of_states.number_of_observations
     observation_time_step = number_of_states.observation_time_step
@@ -281,21 +285,22 @@ function kalman_filter_state_space_initialisation(protein_at_observations,model_
     observation_transform = [0.0 1.0]
 
     # initialise distributions
-    predicted_observation_distributions = Array{Float64}(undef,number_of_observations);#zeros(number_of_observations,3)
+    predicted_observation_distributions = Array{Normal{Float64}}(undef,number_of_observations);#zeros(number_of_observations,3)
     predicted_observation_distributions[1] = distribution_prediction_at_given_time(state_space,
                                                                                    initial_number_of_states,
                                                                                    total_number_of_states,
-                                                                                   observation_transform)
+                                                                                   observation_transform,
+                                                                                   measurement_variance)
 
 
     # update the past ("negative time")
     current_observation = protein_at_observations[1,:]
 
-    state_space_mean, state_space_variance, state_space_mean_derivative, state_space_variance_derivative = kalman_update_step(state_space,
-                                                                                                                              current_observation,
-                                                                                                                              time_delay,
-                                                                                                                              observation_time_step,
-                                                                                                                              measurement_variance)
+    state_space = kalman_update_step(state_space,
+                                     current_observation,
+                                     time_delay,
+                                     observation_time_step,
+                                     measurement_variance)
 
     return StateAndDistributions(state_space, predicted_observation_distributions)
 end # function
@@ -481,7 +486,7 @@ model_parameters : numpy array.
     Kalman filter function documentation, i.e.
     repression_threshold, hill_coefficient, mRNA_degradation_rate,
     protein_degradation_rate, basal_transcription_rate, translation_rate,
-    transcription_delay.
+    time_delay.
 
 observation_time_step : float.
     This gives the time between each experimental observation. This is required to know how far
@@ -523,20 +528,20 @@ function kalman_prediction_step(
     discretisation_time_step = 1.0
     ## name the model parameters
     #@unpack repression_threshold, hill_coefficient, ... = model_parameters
-    repression_threshold = model_parameters[1]
-    hill_coefficient = model_parameters[2]
-    mRNA_degradation_rate = model_parameters[3]
-    protein_degradation_rate = model_parameters[4]
-    basal_transcription_rate = model_parameters[5]
-    translation_rate = model_parameters[6]
-    transcription_delay = model_parameters[7]
+    repression_threshold = model_parameters.repression_threshold
+    hill_coefficient = model_parameters.hill_coefficient
+    mRNA_degradation_rate = model_parameters.mRNA_degradation_rate
+    protein_degradation_rate = model_parameters.protein_degradation_rate
+    basal_transcription_rate = model_parameters.basal_transcription_rate
+    translation_rate = model_parameters.translation_rate
+    time_delay = model_parameters.time_delay
 
-    discrete_delay = Int64(round(transcription_delay/discretisation_time_step))
+    discrete_delay = Int64(round(time_delay/discretisation_time_step))
     number_of_hidden_states = Int64(round(observation_time_step/discretisation_time_step))
 
     # this is the number of states at t, i.e. before predicting towards t+observation_time_step
     current_number_of_states = (Int64(round(current_observation[1]/observation_time_step))-1)*number_of_hidden_states + discrete_delay + 1
-    total_number_of_states = size(state_space_mean,1)
+    total_number_of_states = size(state_space.mean,1)
 
     ## next_time_index corresponds to 't+Deltat' in the propagation equation on page 5 of the supplementary
     ## material in the calderazzo paper
@@ -592,8 +597,8 @@ function kalman_prediction_step(
         current_time_index = next_time_index - 1 # this corresponds to t
         past_time_index = current_time_index - discrete_delay # this corresponds to t-tau
         # indexing with 1:3 for numba
-        current_mean = state_space_mean[current_time_index,[2,3]]
-        past_protein = state_space_mean[past_time_index,3]
+        current_mean = state_space.mean[current_time_index,[2,3]]
+        past_protein = state_space.mean[past_time_index,3]
 
         hill_function_value = 1.0/(1.0+(past_protein/repression_threshold)^hill_coefficient)
 
@@ -614,21 +619,21 @@ function kalman_prediction_step(
         # ensures the prediction is non negative
         next_mean[next_mean.<0] .= 0
         # indexing with 1:3 for numba
-        state_space_mean[next_time_index,[2,3]] .= next_mean
+        state_space.mean[next_time_index,[2,3]] .= next_mean
         # in the next lines we use for loop instead of np.ix_-like indexing for numba
-        current_covariance_matrix = state_space_variance[[current_time_index,
+        current_covariance_matrix = state_space.variance[[current_time_index,
                                                           total_number_of_states+current_time_index],
                                                           [current_time_index,
                                                            total_number_of_states+current_time_index]]
 
         # this is P(t-tau,t) in page 5 of the supplementary material of Calderazzo et. al
-        covariance_matrix_past_to_now .= state_space_variance[[past_time_index,
+        covariance_matrix_past_to_now .= state_space.variance[[past_time_index,
                                                               total_number_of_states+past_time_index],
                                                               [current_time_index,
                                                                total_number_of_states+current_time_index]]
 
         # this is P(t,t-tau) in page 5 of the supplementary material of Calderazzo et. al.
-        covariance_matrix_now_to_past .= state_space_variance[[current_time_index,
+        covariance_matrix_now_to_past .= state_space.variance[[current_time_index,
                                                               total_number_of_states+current_time_index],
                                                               [past_time_index,
                                                                total_number_of_states+past_time_index]]
@@ -652,7 +657,7 @@ function kalman_prediction_step(
         # this is a little annoying to do in Julia, but here we create a mask matrix with a 1 at any negative diagonal entries
         next_covariance_matrix[diagm(next_covariance_matrix[diagind(next_covariance_matrix)].<0)] .= 0
 
-        state_space_variance[[next_time_index,
+        state_space.variance[[next_time_index,
                               total_number_of_states+next_time_index],
                              [next_time_index,
                               total_number_of_states+next_time_index]] .= next_covariance_matrix
@@ -661,12 +666,12 @@ function kalman_prediction_step(
         # the range needs to include t, since we want to propagate P(t,t) into P(t,t+Deltat)
         for intermediate_time_index in past_time_index:current_time_index
             # This corresponds to P(s,t) in the Calderazzo paper
-            covariance_matrix_intermediate_to_current .= state_space_variance[[intermediate_time_index,
+            covariance_matrix_intermediate_to_current .= state_space.variance[[intermediate_time_index,
                                                                               total_number_of_states+intermediate_time_index],
                                                                              [current_time_index,
                                                                               total_number_of_states+current_time_index]]
             # This corresponds to P(s,t-tau)
-            covariance_matrix_intermediate_to_past .= state_space_variance[[intermediate_time_index,
+            covariance_matrix_intermediate_to_past .= state_space.variance[[intermediate_time_index,
                                                                            total_number_of_states+intermediate_time_index],
                                                                            [past_time_index,
                                                                             total_number_of_states+past_time_index]]
@@ -679,18 +684,18 @@ function kalman_prediction_step(
             covariance_matrix_intermediate_to_next .= covariance_matrix_intermediate_to_current .+ discretisation_time_step.*covariance_derivative
 
             # Fill in the big matrix
-            state_space_variance[[intermediate_time_index,
+            state_space.variance[[intermediate_time_index,
                                   total_number_of_states+intermediate_time_index],
                                  [next_time_index,
                                   total_number_of_states+next_time_index]] .= covariance_matrix_intermediate_to_next
             # Fill in the big matrix with transpose arguments, i.e. P(t+Deltat, s) - works if initialised symmetrically
-            state_space_variance[[next_time_index,
+            state_space.variance[[next_time_index,
                                   total_number_of_states+next_time_index],
                                  [intermediate_time_index,
                                   total_number_of_states+intermediate_time_index]] .= transpose(covariance_matrix_intermediate_to_next)
         end # intermediate time index for
     end # for (next time index)
-    return StateSpace(state_space_mean, state_space_variance)
+    return StateSpace(state_space.mean, state_space.variance)
 end # function
 
 # useful function layout from Ti
@@ -769,25 +774,25 @@ function kalman_update_step(
     measurement_variance
     )
 
-    discretisation_time_step = state_space_mean[2,1] - state_space_mean[1,1]
+    discretisation_time_step = state_space.mean[2,1] - state_space.mean[1,1]
     discrete_delay = Int64(round(time_delay/discretisation_time_step))
     number_of_hidden_states = Int64(round(observation_time_step/discretisation_time_step))
 
     # this is the number of states at t+Deltat, i.e. after predicting towards t+observation_time_step
     current_number_of_states = (Int64(round(current_observation[1]/observation_time_step)))*number_of_hidden_states + discrete_delay+1
-    total_number_of_states = size(state_space_mean,1)
+    total_number_of_states = size(state_space.mean,1)
 
     # predicted_state_space_mean until delay, corresponds to
     # rho(t+Deltat-delay:t+deltat). Includes current value and discrete_delay past values
     # funny indexing with 1:3 instead of (1,2) to make numba happy
-    shortened_state_space_mean = state_space_mean[(current_number_of_states-discrete_delay):current_number_of_states,[2,3]]
+    shortened_state_space_mean = state_space.mean[(current_number_of_states-discrete_delay):current_number_of_states,[2,3]]
 
     # put protein values underneath mRNA values, to make vector of means (rho)
     # consistent with variance (P)
     stacked_state_space_mean = vcat(shortened_state_space_mean[:,1],shortened_state_space_mean[:,2])
 
     # funny indexing with 1:3 instead of (1,2) to make numba happy
-    predicted_final_state_space_mean = copy(state_space_mean[current_number_of_states,[2,3]])
+    predicted_final_state_space_mean = copy(state_space.mean[current_number_of_states,[2,3]])
 
     # extract covariance matrix up to delay
     # corresponds to P(t+Deltat-delay:t+deltat,t+Deltat-delay:t+deltat)
@@ -796,7 +801,7 @@ function kalman_update_step(
     all_indices_up_to_delay = vcat(mRNA_indices_to_keep, protein_indices_to_keep)
 
     # using for loop indexing for numba
-    shortened_covariance_matrix = state_space_variance[all_indices_up_to_delay,all_indices_up_to_delay]
+    shortened_covariance_matrix = state_space.variance[all_indices_up_to_delay,all_indices_up_to_delay]
     # extract P(t+Deltat-delay:t+deltat,t+Deltat)
     shortened_covariance_matrix_past_to_final = shortened_covariance_matrix[:,[discrete_delay+1,end]]
 
@@ -807,7 +812,7 @@ function kalman_update_step(
     observation_transform = [0.0 1.0]
 
     # This is P(t+Deltat,t+Deltat) in the paper
-    predicted_final_covariance_matrix = state_space_variance[[current_number_of_states,
+    predicted_final_covariance_matrix = state_space.variance[[current_number_of_states,
                                                               total_number_of_states+current_number_of_states],
                                                              [current_number_of_states,
                                                               total_number_of_states+current_number_of_states]]
@@ -829,7 +834,7 @@ function kalman_update_step(
                                     updated_stacked_state_space_mean[(discrete_delay+2):end])
     # Fill in the updated values
     # funny indexing with 1:3 instead of (1,2) to make numba happy
-    state_space_mean[(current_number_of_states-discrete_delay):current_number_of_states,[2,3]] .= updated_state_space_mean
+    state_space.mean[(current_number_of_states-discrete_delay):current_number_of_states,[2,3]] .= updated_state_space_mean
 
     # This is P*
     updated_shortened_covariance_matrix = ( shortened_covariance_matrix .-
@@ -839,7 +844,7 @@ function kalman_update_step(
     updated_shortened_covariance_matrix[diagm(updated_shortened_covariance_matrix[diagind(updated_shortened_covariance_matrix)].<0)] .= 0
 
     # Fill in updated values
-    state_space_variance[all_indices_up_to_delay,all_indices_up_to_delay] .= updated_shortened_covariance_matrix
+    state_space.variance[all_indices_up_to_delay,all_indices_up_to_delay] .= updated_shortened_covariance_matrix
 
-    return StateSpace(state_space_mean, state_space_variance)
+    return StateSpace(state_space.mean, state_space.variance)
 end # function

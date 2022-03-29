@@ -16,13 +16,9 @@ using Test
     distributions = state_space_and_distributions.distributions
 
     # check arrays are correct shape
-    @test size(state_space_mean) == (protein_at_observations[end,1] + 1 + model_parameters[end],3)
-    @test size(state_space_variance) == ((protein_at_observations[end,1] + 1 + model_parameters[end])*2,(protein_at_observations[end,1] + 1 + model_parameters[end])*2)
-    # @test size(c) == (protein_at_observations[end,1] + 1 + model_parameters[end],length(model_parameters),2)
-    # @test size(d) == (length(model_parameters),(protein_at_observations[end,1] + 1 + model_parameters[end])*2,(protein_at_observations[end,1] + 1 + model_parameters[end])*2)
-    @test size(distributions) == size(protein_at_observations,1)
-    # @test size(f) == (size(protein_at_observations,1),length(model_parameters),2)
-    # @test size(g) == (size(protein_at_observations,1),length(model_parameters),2,2)
+    @test size(state_space_mean) == (protein_at_observations[end,1] + 1 + model_parameters.time_delay,3)
+    @test size(state_space_variance) == ((protein_at_observations[end,1] + 1 + model_parameters.time_delay)*2,(protein_at_observations[end,1] + 1 + model_parameters.time_delay)*2)
+    @test size(distributions,1) == size(protein_at_observations,1)
 end
 
 # using ForwardDiff
