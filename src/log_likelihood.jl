@@ -7,8 +7,8 @@ Parameters
 ----------
 
 protein_at_observations : numpy array.
-    Observed protein. The dimension is m x n x 2, where m is the number of data sets, n is the
-    number of observation time points. For each data set, the first column is the time,
+    Observed protein. The dimension is n x 2, where n is the number of observation
+    time points. For each data set, the first column is the time,
     and the second column is the observed protein copy number at that time.
 
 model_parameters : numpy array.
@@ -26,23 +26,31 @@ Returns
 log_likelihood : float.
     The log of the likelihood of the data.
 """
-function calculate_log_likelihood_at_parameter_point(protein_at_observations,model_parameters,measurement_variance)
-    if any(model_parameters .< 0)
+function calculate_log_likelihood_at_parameter_point(
+    protein_at_observations::AbstractMatrix{<:Real},
+    model_parameters::ModelParameters,
+    measurement_variance::Real
+)
+    size(protein_at_observations, 2) == 2 || throw(ArgumentError("observation matrix must be N × 2"))
+
+    if any([getfield(model_parameters,fieldname) for fieldname in fieldnames(ModelParameters)] .<= 0)
         return -Inf
     end
 
-    log_likelihood = 0
-    _, _, _, _, predicted_observation_distributions, _, _ = kalman_filter(protein_at_observations,
-                                                                          model_parameters,
-                                                                          measurement_variance)
+    state_space_and_distributions = kalman_filter(protein_at_observations,
+                                                  model_parameters,
+                                                  measurement_variance)
     observations = protein_at_observations[:,2]
-    mean = predicted_observation_distributions[:,2]
-    sd = sqrt.(predicted_observation_distributions[:,3])
+    return sum(logpdf.(state_space_and_distributions.distributions, observations))
+    # old way (test new before deleting)
+    # mean = predicted_observation_distributions[:,2]
+    # sd = sqrt.(predicted_observation_distributions[:,3])
 
-    for observation_index in 1:length(observations)
-        log_likelihood += logpdf(Normal(mean[observation_index],sd[observation_index]),observations[observation_index])
-    end #for
-    return log_likelihood
+    # log_likelihood = 0
+    # for observation_index in 1:length(observations)
+    #     log_likelihood += logpdf(Normal(mean[observation_index],sd[observation_index]),observations[observation_index])
+    # end #for
+    # return log_likelihood
 end # function
 
 
