@@ -29,18 +29,23 @@ log_likelihood : float.
 function calculate_log_likelihood_at_parameter_point(
     protein_at_observations::AbstractArray{<:Real},
     model_parameters::ModelParameters,
-    measurement_variance::Real
+    measurement_variance::Real,
 )
-    size(protein_at_observations, 2) == 2 || throw(ArgumentError("observation matrix must be N × 2"))
+    size(protein_at_observations, 2) == 2 ||
+        throw(ArgumentError("observation matrix must be N × 2"))
 
-    if any([getfield(model_parameters,fieldname) for fieldname in fieldnames(ModelParameters)] .<= 0)
+    if any(
+        [
+            getfield(model_parameters, fieldname) for
+            fieldname in fieldnames(ModelParameters)
+        ] .<= 0,
+    )
         return -Inf
     end
 
-    state_space_and_distributions = kalman_filter(protein_at_observations,
-                                                  model_parameters,
-                                                  measurement_variance)
-    observations = protein_at_observations[:,2]
+    state_space_and_distributions =
+        kalman_filter(protein_at_observations, model_parameters, measurement_variance)
+    observations = protein_at_observations[:, 2]
     return sum(logpdf.(state_space_and_distributions.distributions, observations))
     # old way (test new before deleting)
     # mean = predicted_observation_distributions[:,2]
