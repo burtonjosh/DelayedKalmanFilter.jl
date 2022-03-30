@@ -1,11 +1,11 @@
 Base.@kwdef struct ModelParameters{T<:AbstractFloat}
-    repression_threshold::T = 10000.0
-    hill_coefficient::T = 5.0
-    mRNA_degradation_rate::T = log(2) / 30
-    protein_degradation_rate::T = log(2) / 90
-    basal_transcription_rate::T = 1.0
-    translation_rate::T = 1.0
-    time_delay::T = 29.0
+    P₀::T = 10000.0
+    h::T = 5.0
+    μₘ::T = log(2) / 30
+    μₚ::T = log(2) / 90
+    αₘ::T = 1.0
+    αₚ::T = 1.0
+    τ::T = 29.0
 end
 
 struct StateSpace{T<:AbstractFloat}
@@ -34,7 +34,7 @@ states for various uses in the Kalman filter.
 """
 function time_constructor_function(
     protein_at_observations::Matrix{<:AbstractFloat},
-    time_delay::AbstractFloat,
+    τ::AbstractFloat,
     discretisation_time_step::Integer = 1,
 )
 
@@ -42,7 +42,7 @@ function time_constructor_function(
     observation_time_step =
         Int(protein_at_observations[2, 1] - protein_at_observations[1, 1])
 
-    discrete_delay = Int64(round(time_delay / discretisation_time_step))
+    discrete_delay = Int64(round(τ / discretisation_time_step))
     initial_number_of_states = discrete_delay + 1
     number_of_hidden_states = Int64(round(observation_time_step / discretisation_time_step))
 
@@ -121,7 +121,7 @@ Calculate the current number of states for a given observation time
 function calculate_current_number_of_states(
     current_observation_time::AbstractFloat,
     states::TimeConstructor,
-    time_delay::AbstractFloat,
+    τ::AbstractFloat,
 )
     return Int(round(current_observation_time / states.observation_time_step)) *
            states.number_of_hidden_states + states.initial_number_of_states
@@ -153,9 +153,9 @@ function kalman_filter(
     measurement_variance::AbstractFloat,
 )
 
-    time_delay = model_parameters.time_delay
+    τ = model_parameters.τ
     observation_transform = [0.0 1.0]
-    states = time_constructor_function(protein_at_observations, time_delay)
+    states = time_constructor_function(protein_at_observations, τ)
     # initialise state space and distribution predictions
     state_space_and_distributions = kalman_filter_state_space_initialisation(
         protein_at_observations,
@@ -174,7 +174,7 @@ function kalman_filter(
         )
 
         current_number_of_states =
-            calculate_current_number_of_states(current_observation[1], states, time_delay)
+            calculate_current_number_of_states(current_observation[1], states, τ)
         # between the prediction and update steps we record the normal distributions for our likelihood
         state_space_and_distributions.distributions[observation_index+1] =
             distribution_prediction_at_given_time(
@@ -188,7 +188,7 @@ function kalman_filter(
             state_space_and_distributions.state_space,
             states,
             current_observation,
-            time_delay,
+            τ,
             measurement_variance,
         )
     end # for
@@ -260,9 +260,9 @@ function kalman_filter_state_space_initialisation(
     measurement_variance::AbstractFloat = 10.0,
 )
 
-    time_delay = model_parameters.time_delay
+    τ = model_parameters.τ
 
-    states = time_constructor_function(protein_at_observations, time_delay) # hidden discretisation_time_step in this function
+    states = time_constructor_function(protein_at_observations, τ) # hidden discretisation_time_step in this function
     steady_state = calculate_steady_state_of_ode(model_parameters)
 
     # construct state space
@@ -283,13 +283,7 @@ function kalman_filter_state_space_initialisation(
     )
     # update the past ("negative time")
     current_observation = protein_at_observations[1, :]
-    kalman_update_step!(
-        state_space,
-        states,
-        current_observation,
-        time_delay,
-        measurement_variance,
-    )
+    kalman_update_step!(state_space, states, current_observation, τ, measurement_variance)
 
     return StateAndDistributions(state_space, predicted_observation_distributions)
 end # function
@@ -312,8 +306,8 @@ end
 
 function construct_instant_jacobian(model_parameters::ModelParameters)
     [
-        -model_parameters.mRNA_degradation_rate 0.0
-        model_parameters.translation_rate -model_parameters.protein_degradation_rate
+        -model_parameters.μₘ 0.0
+        model_parameters.αₚ -model_parameters.μₚ
     ]
 end
 
@@ -323,7 +317,7 @@ function construct_delayed_jacobian(
     past_protein,
 )
     [
-        0.0 model_parameters.basal_transcription_rate*hill_function_derivative(past_protein)
+        0.0 model_parameters.αₘ*hill_function_derivative(past_protein)
         0.0 0.0
     ]
 end
@@ -352,10 +346,9 @@ function predict_state_space_mean_one_step!(
     # derivative of mean is contributions from instant reactions + contributions from past reactions
     derivative_of_mean = (
         [
-            -model_parameters.mRNA_degradation_rate 0.0
-            model_parameters.translation_rate -model_parameters.protein_degradation_rate
-        ] * current_mean +
-        [model_parameters.basal_transcription_rate * hill_function_value, 0]
+            -model_parameters.μₘ 0.0
+            model_parameters.αₚ -model_parameters.μₚ
+        ] * current_mean + [model_parameters.αₘ * hill_function_value, 0]
     )
 
     next_mean = current_mean .+ states.discretisation_time_step .* derivative_of_mean
@@ -408,8 +401,8 @@ function predict_state_space_variance_one_step!(
     )
 
     variance_of_noise = [
-        model_parameters.mRNA_degradation_rate*current_mean[1]+model_parameters.basal_transcription_rate*hill_function_value 0
-        0 model_parameters.translation_rate*current_mean[1]+model_parameters.protein_degradation_rate*current_mean[2]
+        model_parameters.μₘ*current_mean[1]+model_parameters.αₘ*hill_function_value 0
+        0 model_parameters.αₚ*current_mean[1]+model_parameters.μₚ*current_mean[2]
     ]
 
     derivative_of_variance = (
@@ -462,25 +455,19 @@ function kalman_prediction_step!(
     model_parameters::ModelParameters,
 )
 
-    @unpack repression_threshold,
-    hill_coefficient,
-    mRNA_degradation_rate,
-    protein_degradation_rate,
-    basal_transcription_rate,
-    translation_rate,
-    time_delay = model_parameters
+    @unpack P₀, h, μₘ, μₚ, αₘ, αₚ, τ = model_parameters
 
     # this is the number of states at t, i.e. before predicting towards t+observation_time_step
     current_number_of_states = calculate_current_number_of_states(
         current_observation[1] - states.number_of_hidden_states,
         states,
-        time_delay,
+        τ,
     )
 
     matrices = PredictionHelperMatrices{eltype(state_space.variance)}()
 
     # autodiff function for hill function
-    hill_function_single = x -> hill_function(x, repression_threshold, hill_coefficient)
+    hill_function_single = x -> hill_function(x, P₀, h)
     hill_function_derivative = x -> ForwardDiff.derivative(hill_function_single, x)
 
     instant_jacobian = construct_instant_jacobian(model_parameters)
@@ -551,8 +538,8 @@ function kalman_prediction_step!(
         # variance_change_past_contribution = ( delayed_jacobian*matrices.covariance_matrix_past_to_now .+
         #                                       matrices.covariance_matrix_now_to_past*delayed_jacobian_transpose )
         #
-        # variance_of_noise = [mRNA_degradation_rate*current_mean[1]+basal_transcription_rate*hill_function_value 0;
-        #                      0 translation_rate*current_mean[1]+protein_degradation_rate*current_mean[2]]
+        # variance_of_noise = [μₘ*current_mean[1]+αₘ*hill_function_value 0;
+        #                      0 αₚ*current_mean[1]+μₚ*current_mean[2]]
         #
         # derivative_of_variance = ( variance_change_current_contribution .+
         #                            variance_change_past_contribution .+
@@ -652,7 +639,7 @@ This assumes that the observations are collected at fixed time intervals.
 
 - `current_observation::AbstractArray{<:Real}`: TODO
 
-- `time_delay::Real`: TODO
+- `τ::Real`: TODO
 
 - `measurement_variance::Real`: TODO
 
@@ -665,12 +652,12 @@ function kalman_update_step!(
     state_space::StateSpace,
     states::TimeConstructor,
     current_observation::Vector{<:AbstractFloat},
-    time_delay::AbstractFloat,
+    τ::AbstractFloat,
     measurement_variance::AbstractFloat,
 )
 
     current_number_of_states =
-        calculate_current_number_of_states(current_observation[1], states, time_delay)
+        calculate_current_number_of_states(current_observation[1], states, τ)
 
     # predicted_state_space_mean until delay, corresponds to
     # rho(t+Deltat-delay:t+deltat). Includes current value and discrete_delay past values

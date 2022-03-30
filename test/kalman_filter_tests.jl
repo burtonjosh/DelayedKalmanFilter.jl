@@ -19,14 +19,10 @@ using Test
 
     # check arrays are correct shape
     @test size(state_space_mean) ==
-          (protein_at_observations[end, 1] + 1 + model_parameters.time_delay, 3)
+          (protein_at_observations[end, 1] + 1 + model_parameters.τ, 3)
     @test size(state_space_variance) == (
-        (protein_at_observations[end, 1] + 1 + model_parameters.time_delay) * 2,
-        (protein_at_observations[end, 1] + 1 + model_parameters.time_delay) * 2,
+        (protein_at_observations[end, 1] + 1 + model_parameters.τ) * 2,
+        (protein_at_observations[end, 1] + 1 + model_parameters.τ) * 2,
     )
     @test size(distributions, 1) == size(protein_at_observations, 1)
 end
-
-# using ForwardDiff
-# log_likelihood_gradient(model_parameters,protein_at_observations,measurement_variance) = ForwardDiff.gradient(model_parameters -> calculate_log_likelihood_at_parameter_point(model_parameters,protein_at_observations,measurement_variance),model_parameters)
-# log_likelihood_gradient(model_parameters,protein_at_observations,measurement_variance)
