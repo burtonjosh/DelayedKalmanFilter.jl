@@ -164,19 +164,18 @@ function kalman_filter(
     )
 
     # loop through observations and at each observation apply the Kalman prediction step and then the update step
-    for observation_index = 1:size(protein_at_observations, 1)-1
-        current_observation = protein_at_observations[1+observation_index, :]
+    for observation_index = 2:size(protein_at_observations, 1)
+        current_observation = protein_at_observations[observation_index, :]
         kalman_prediction_step!(
             state_space_and_distributions.state_space,
             states,
             current_observation,
             model_parameters,
         )
-
         current_number_of_states =
             calculate_current_number_of_states(current_observation[1], states, τ)
         # between the prediction and update steps we record the normal distributions for our likelihood
-        state_space_and_distributions.distributions[observation_index+1] =
+        state_space_and_distributions.distributions[observation_index] =
             distribution_prediction_at_given_time(
                 state_space_and_distributions.state_space,
                 states,
@@ -224,12 +223,15 @@ function initialise_state_space_variance(
 )
 
     state_space_variance =
-        zeros(2 * (states.total_number_of_states), 2 * (states.total_number_of_states))
+        Array{AbstractFloat}(undef,2 * (states.total_number_of_states), 2 * (states.total_number_of_states))
+
     diag_indices = diagind(state_space_variance)
-    state_space_variance[diag_indices[1:states.initial_number_of_states]] .=
-        steady_state[1] * mRNA_scaling
-    state_space_variance[diag_indices[1+states.total_number_of_states:1+states.total_number_of_states+states.initial_number_of_states]] .=
-        steady_state[2] * protein_scaling
+    mRNA_indices = 1:states.initial_number_of_states
+    protein_indices = 1+states.total_number_of_states:1+states.total_number_of_states+states.initial_number_of_states
+
+    state_space_variance[diag_indices[mRNA_indices]] .= steady_state[1] * mRNA_scaling
+    state_space_variance[diag_indices[protein_indices]] .= steady_state[2] * protein_scaling
+
     return state_space_variance
 end
 
@@ -262,7 +264,7 @@ function kalman_filter_state_space_initialisation(
 
     τ = model_parameters.τ
 
-    states = time_constructor_function(protein_at_observations, τ) # hidden discretisation_time_step in this function
+    states = time_constructor_function(protein_at_observations, τ)
     steady_state = calculate_steady_state_of_ode(model_parameters)
 
     # construct state space
@@ -297,11 +299,10 @@ end
 
 function construct_delayed_jacobian(
     model_parameters::ModelParameters,
-    hill_function_derivative,
     past_protein,
 )
     [
-        0.0 model_parameters.αₘ*hill_function_derivative(past_protein)
+        0.0 model_parameters.αₘ*∂hill∂p(past_protein,model_parameters.P₀,model_parameters.h)
         0.0 0.0
     ]
 end
@@ -342,7 +343,10 @@ function predict_state_space_mean_one_step!(
     return state_space_mean
 end
 
-function predict_diagonal_variance_one_step!(
+"""
+Calculate the derivative of the variance needed for the forward Euler integrator
+"""
+function calculate_variance_derivative(
     state_space_variance,
     current_time_index,
     current_mean,
@@ -350,23 +354,24 @@ function predict_diagonal_variance_one_step!(
     states,
     hill_function_value,
     instant_jacobian,
-    delayed_jacobian,
-)
+    delayed_jacobian
+    )
 
     past_time_index = current_time_index - states.discrete_delay
-    # in the next lines we use for loop instead of np.ix_-like indexing for numba
+
+    # P(t,t)
     current_covariance_matrix = state_space_variance[
         [current_time_index, states.total_number_of_states + current_time_index],
         [current_time_index, states.total_number_of_states + current_time_index],
     ]
 
-    # this is P(t-tau,t) in page 5 of the supplementary material of Calderazzo et. al
+    # P(t-tau,t)
     covariance_matrix_past_to_now = state_space_variance[
         [past_time_index, states.total_number_of_states + past_time_index],
         [current_time_index, states.total_number_of_states + current_time_index],
     ]
 
-    # this is P(t,t-tau) in page 5 of the supplementary material of Calderazzo et. al.
+    # P(t,t-tau)
     covariance_matrix_now_to_past = state_space_variance[
         [current_time_index, states.total_number_of_states + current_time_index],
         [past_time_index, states.total_number_of_states + past_time_index],
@@ -392,6 +397,32 @@ function predict_diagonal_variance_one_step!(
         variance_of_noise
     )
 
+    return derivative_of_variance, current_covariance_matrix
+
+end
+
+function predict_diagonal_variance_one_step!(
+    state_space_variance,
+    current_time_index,
+    current_mean,
+    model_parameters,
+    states,
+    hill_function_value,
+    instant_jacobian,
+    delayed_jacobian
+)
+
+    derivative_of_variance, current_covariance_matrix= calculate_variance_derivative(
+        state_space_variance,
+        current_time_index,
+        current_mean,
+        model_parameters,
+        states,
+        hill_function_value,
+        instant_jacobian,
+        delayed_jacobian
+        )
+
     # P(t+Deltat,t+Deltat)
     next_covariance_matrix =
         current_covariance_matrix .+
@@ -408,7 +439,10 @@ function predict_diagonal_variance_one_step!(
     return state_space_variance
 end
 
-function predict_off_diagonal_variance_one_step!(
+"""
+Calculate the derivative of the covariance needed for the forward Euler intergator
+"""
+function calculate_covariance_derivative(
     state_space_variance,
     current_time_index,
     intermediate_time_index,
@@ -420,7 +454,7 @@ function predict_off_diagonal_variance_one_step!(
 
     past_time_index = current_time_index - states.discrete_delay
 
-    # This corresponds to P(s,t) in the Calderazzo paper
+    # P(s,t)
     covariance_matrix_intermediate_to_current =
         state_space_variance[
             [
@@ -432,7 +466,7 @@ function predict_off_diagonal_variance_one_step!(
                 states.total_number_of_states + current_time_index,
             ],
         ]
-    # This corresponds to P(s,t-tau)
+    # P(s,t-tau)
     covariance_matrix_intermediate_to_past = state_space_variance[
         [
             intermediate_time_index,
@@ -442,10 +476,32 @@ function predict_off_diagonal_variance_one_step!(
     ]
 
 
-    covariance_derivative = (
+    return (
         covariance_matrix_intermediate_to_current * instant_jacobian' .+
-        covariance_matrix_intermediate_to_past * delayed_jacobian'
+        covariance_matrix_intermediate_to_past * delayed_jacobian',
+        covariance_matrix_intermediate_to_current
     )
+end
+
+function predict_off_diagonal_variance_one_step!(
+    state_space_variance,
+    current_time_index,
+    intermediate_time_index,
+    current_mean,
+    states,
+    instant_jacobian,
+    delayed_jacobian
+    )
+
+    covariance_derivative, covariance_matrix_intermediate_to_current = calculate_covariance_derivative(
+        state_space_variance,
+        current_time_index,
+        intermediate_time_index,
+        current_mean,
+        states,
+        instant_jacobian,
+        delayed_jacobian
+        )
 
     # This corresponds to P(s,t+Deltat) in the Calderazzo paper
     covariance_matrix_intermediate_to_next =
@@ -462,7 +518,7 @@ function predict_off_diagonal_variance_one_step!(
             current_time_index + 1,
             states.total_number_of_states + current_time_index + 1
         ],
-    ] = covariance_matrix_intermediate_to_next
+    ] .= covariance_matrix_intermediate_to_next
     # Fill in the big matrix with transpose arguments, i.e. P(t+Deltat, s) - works if initialised symmetrically
     state_space_variance[
         [
@@ -473,7 +529,7 @@ function predict_off_diagonal_variance_one_step!(
             intermediate_time_index,
             states.total_number_of_states + intermediate_time_index,
         ],
-    ] = covariance_matrix_intermediate_to_next'
+    ] .= covariance_matrix_intermediate_to_next'
 
     return state_space_variance
 end
@@ -515,11 +571,6 @@ function kalman_prediction_step!(
         τ,
     )
 
-
-    # autodiff function for hill function
-    hill_function_single = x -> hill_function(x, P₀, h)
-    hill_function_derivative = x -> ForwardDiff.derivative(hill_function_single, x)
-
     instant_jacobian = construct_instant_jacobian(model_parameters)
 
     for current_time_index =
@@ -532,11 +583,9 @@ function kalman_prediction_step!(
                 states.discrete_delay,
             )
 
-
         # delayed_jacobian derivative of f with respect to past state ([past_mRNA, past_protein])
         delayed_jacobian = construct_delayed_jacobian(
             model_parameters,
-            hill_function_derivative,
             past_protein,
         )
 
@@ -546,7 +595,7 @@ function kalman_prediction_step!(
             current_mean,
             model_parameters,
             states,
-            hill_function_single(past_protein)
+            hill_function(past_protein,model_parameters.P₀,model_parameters.h)
         )
 
         predict_diagonal_variance_one_step!(
@@ -555,7 +604,7 @@ function kalman_prediction_step!(
             current_mean,
             model_parameters,
             states,
-            hill_function_single(past_protein),
+            hill_function(past_protein,model_parameters.P₀,model_parameters.h),
             instant_jacobian,
             delayed_jacobian
         )
@@ -576,13 +625,16 @@ function kalman_prediction_step!(
     return state_space
 end # function
 
-
-function update_stacked_state_space_mean!(
+"""
+Take the stacked state space mean and return the updated state space mean in the original dimensions
+"""
+function update_stacked_state_space_mean(
     stacked_state_space_mean,
     adaptation_coefficient,
     observation_transform,
     current_observation,
-    predicted_final_state_space_mean
+    predicted_final_state_space_mean,
+    states
     )
 
     stacked_state_space_mean .+= reshape(
@@ -593,7 +645,13 @@ function update_stacked_state_space_mean!(
         )
     # ensure the mean mRNA and protein are non negative
     stacked_state_space_mean[stacked_state_space_mean .< 0.0] .= 0.0
-    return stacked_state_space_mean
+
+    updated_state_space_mean = hcat(
+        stacked_state_space_mean[1:(states.discrete_delay+1)],
+        stacked_state_space_mean[(states.discrete_delay+2):end],
+    )
+
+    return updated_state_space_mean
 end
 
 function update_mean!(
@@ -605,6 +663,7 @@ function update_mean!(
     observation_transform
     )
 
+    # we update back to t-τ, so only consider these points
     shortened_state_space_mean = state_space_mean[
         (current_number_of_states-states.discrete_delay):current_number_of_states,
         [2, 3],
@@ -617,22 +676,16 @@ function update_mean!(
 
     predicted_final_state_space_mean = state_space_mean[current_number_of_states, [2, 3]]
 
-    update_stacked_state_space_mean!(
+    state_space_mean[
+        (current_number_of_states-states.discrete_delay):current_number_of_states,
+        [2, 3],
+    ] .= update_stacked_state_space_mean(
         stacked_state_space_mean,
         adaptation_coefficient,
         observation_transform,
         current_observation,
-        predicted_final_state_space_mean)
-
-        updated_state_space_mean = hcat(
-        stacked_state_space_mean[1:(states.discrete_delay+1)],
-        stacked_state_space_mean[(states.discrete_delay+2):end],
-    )
-    # Fill in the updated values
-    state_space_mean[
-        (current_number_of_states-states.discrete_delay):current_number_of_states,
-        [2, 3],
-    ] = updated_state_space_mean
+        predicted_final_state_space_mean,
+        states)
 
     return state_space_mean
 end
@@ -661,6 +714,95 @@ function calculate_adaptation_coefficient(
         dot.(cov_matrix, observation_transform),
         dims = 2,
     ) .* helper_inverse
+end
+
+function calculate_shortened_covariance_matrix(
+    state_space_variance,
+    current_number_of_states,
+    states::TimeConstructor
+    )
+
+    mRNA_indices_to_keep =
+        (current_number_of_states-states.discrete_delay):(current_number_of_states)
+    protein_indices_to_keep =
+        (states.total_number_of_states+current_number_of_states-states.discrete_delay):(states.total_number_of_states+current_number_of_states)
+    all_indices_up_to_delay = vcat(mRNA_indices_to_keep, protein_indices_to_keep)
+
+    return state_space_variance[all_indices_up_to_delay, all_indices_up_to_delay], all_indices_up_to_delay
+end
+
+"""
+Return the covariance matrix at the current (last predicted) number of states
+"""
+function calculate_final_covariance_matrix(
+    state_space_variance,
+    current_number_of_states,
+    states
+    )
+    return state_space_variance[
+        [
+            current_number_of_states,
+            states.total_number_of_states + current_number_of_states,
+        ],
+        [
+            current_number_of_states,
+            states.total_number_of_states + current_number_of_states,
+        ],
+    ]
+end
+
+"""
+Take the stacked state space mean and return the updated state space mean in the original dimensions
+"""
+function update_shortened_covariance(
+    shortened_covariance_matrix,
+    adaptation_coefficient,
+    observation_transform,
+    current_observation,
+    predicted_final_state_space_mean,
+    states
+    )
+
+    stacked_state_space_mean .+= reshape(
+        adaptation_coefficient * (
+            current_observation[2] -
+                dot(observation_transform, predicted_final_state_space_mean)
+            ), length(stacked_state_space_mean)
+        )
+    # ensure the mean mRNA and protein are non negative
+    stacked_state_space_mean[stacked_state_space_mean .< 0.0] .= 0.0
+
+    updated_state_space_mean = hcat(
+        stacked_state_space_mean[1:(states.discrete_delay+1)],
+        stacked_state_space_mean[(states.discrete_delay+2):end],
+    )
+
+    return updated_state_space_mean
+end
+
+function update_variance!(
+    state_space_variance,
+    shortened_covariance_matrix,
+    all_indices_up_to_delay,
+    states,
+    adaptation_coefficient,
+    observation_transform
+    )
+
+    updated_shortened_covariance_matrix = (
+        shortened_covariance_matrix .-
+        adaptation_coefficient *
+        observation_transform *
+        shortened_covariance_matrix[[states.discrete_delay + 1, end], :]
+    )
+
+    idx = diagind(updated_shortened_covariance_matrix)
+    updated_shortened_covariance_matrix[idx[updated_shortened_covariance_matrix[idx] .<0.0]] .= 0.0
+
+    # Fill in updated values
+    state_space_variance[all_indices_up_to_delay, all_indices_up_to_delay] .= updated_shortened_covariance_matrix
+
+    return state_space_variance
 end
 
 """
@@ -696,54 +838,36 @@ function kalman_update_step!(
     current_number_of_states =
         calculate_current_number_of_states(current_observation[1], states, τ)
 
-    # extract covariance matrix up to delay
+    # extract covariance matrix up to delay and indices
     # corresponds to P(t+Deltat-delay:t+deltat,t+Deltat-delay:t+deltat)
-    mRNA_indices_to_keep =
-        (current_number_of_states-states.discrete_delay):(current_number_of_states)
-    protein_indices_to_keep =
-        (states.total_number_of_states+current_number_of_states-states.discrete_delay):(states.total_number_of_states+current_number_of_states)
-    all_indices_up_to_delay = vcat(mRNA_indices_to_keep, protein_indices_to_keep)
-
-
-    shortened_covariance_matrix =
-        state_space.variance[all_indices_up_to_delay, all_indices_up_to_delay]
-    # extract P(t+Deltat-delay:t+deltat,t+Deltat)
-    shortened_covariance_matrix_past_to_final =
-        shortened_covariance_matrix[:, [states.discrete_delay + 1, end]]
-
-    # and P(t+Deltat,t+Deltat-delay:t+deltat)
-    shortened_covariance_matrix_final_to_past =
-        shortened_covariance_matrix[[states.discrete_delay + 1, end], :]
+    shortened_covariance_matrix, all_indices_up_to_delay = calculate_shortened_covariance_matrix(
+        state_space.variance,
+        current_number_of_states,
+        states)
 
     # This is F in the paper
     observation_transform = [0.0 1.0]
 
     # This is P(t+Deltat,t+Deltat) in the paper
-    predicted_final_covariance_matrix = state_space.variance[
-        [
-            current_number_of_states,
-            states.total_number_of_states + current_number_of_states,
-        ],
-        [
-            current_number_of_states,
-            states.total_number_of_states + current_number_of_states,
-        ],
-    ]
+    predicted_final_covariance_matrix = calculate_final_covariance_matrix(
+        state_space.variance,
+        current_number_of_states,
+        states
+        )
 
     # This is (FP_{t+Deltat}F^T + Sigma_e)^-1
     helper_inverse = calculate_helper_inverse(
-                                        observation_transform,
-                                        predicted_final_covariance_matrix,
-                                        measurement_variance
-                                        )
+        observation_transform,
+        predicted_final_covariance_matrix,
+        measurement_variance
+    )
 
     # This is C in the paper
     adaptation_coefficient =  calculate_adaptation_coefficient(
-                                                        shortened_covariance_matrix_past_to_final,
-                                                        observation_transform,
-                                                        helper_inverse
-                                                        )
-
+        shortened_covariance_matrix[:, [states.discrete_delay + 1, end]],
+        observation_transform,
+        helper_inverse
+    )
     # this is ρ*
     update_mean!(
         state_space.mean,
@@ -753,23 +877,14 @@ function kalman_update_step!(
         current_observation,
         observation_transform
         )
-
     # This is P*
-    updated_shortened_covariance_matrix = (
-        shortened_covariance_matrix .-
-        adaptation_coefficient *
-        observation_transform *
-        shortened_covariance_matrix_final_to_past
-    )
-    # ensure that the diagonal entries are non negative
-    # np.fill_diagonal(updated_shortened_covariance_matrix,np.maximum(np.diag(updated_shortened_covariance_matrix),0))
-    updated_shortened_covariance_matrix[diagm(
-        updated_shortened_covariance_matrix[diagind(updated_shortened_covariance_matrix)] .<
-        0,
-    )] .= 0
-
-    # Fill in updated values
-    state_space.variance[all_indices_up_to_delay, all_indices_up_to_delay] .= updated_shortened_covariance_matrix
-
+    update_variance!(
+        state_space.variance,
+        shortened_covariance_matrix,
+        all_indices_up_to_delay,
+        states,
+        adaptation_coefficient,
+        observation_transform
+        )
     return state_space
 end # function

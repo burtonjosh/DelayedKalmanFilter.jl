@@ -21,6 +21,8 @@ function hill_function(protein, P₀, h)
     return 1 / (1 + (protein / P₀)^h)
 end
 
+∂hill∂p(protein,P₀,h) = ForwardDiff.derivative(protein -> hill_function(protein,P₀,h), protein)
+
 """
 Calculate the steady state of the Hes5 ODE system, for a specific set of parameters.
 
