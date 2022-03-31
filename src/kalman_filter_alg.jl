@@ -154,12 +154,15 @@ function kalman_filter(
 )
 
     τ = model_parameters.τ
+    # F in the paper
     observation_transform = [0.0 1.0]
     states = time_constructor_function(protein_at_observations, τ)
     # initialise state space and distribution predictions
     state_space_and_distributions = kalman_filter_state_space_initialisation(
         protein_at_observations,
         model_parameters,
+        states,
+        observation_transform,
         measurement_variance,
     )
 
@@ -189,6 +192,7 @@ function kalman_filter(
             current_observation,
             τ,
             measurement_variance,
+            observation_transform,
         )
     end # for
     return state_space_and_distributions
@@ -263,20 +267,20 @@ and then updates them with kalman_update_step.
 function kalman_filter_state_space_initialisation(
     protein_at_observations::Matrix{<:AbstractFloat},
     model_parameters::ModelParameters,
+    states::TimeConstructor,
+    observation_transform,
     measurement_variance::AbstractFloat = 10.0,
 )
 
     τ = model_parameters.τ
 
-    states = time_constructor_function(protein_at_observations, τ)
+    # states = time_constructor_function(protein_at_observations, τ)
     steady_state = calculate_steady_state_of_ode(model_parameters)
 
     # construct state space
     state_space_mean = initialise_state_space_mean(states, steady_state)
     state_space_variance = initialise_state_space_variance(states, steady_state)
     state_space = StateSpace{Float64}(state_space_mean, state_space_variance)
-
-    observation_transform = [0.0 1.0]
 
     # initialise distributions
     predicted_observation_distributions =
@@ -289,7 +293,14 @@ function kalman_filter_state_space_initialisation(
     )
     # update the past ("negative time")
     current_observation = protein_at_observations[1, :]
-    kalman_update_step!(state_space, states, current_observation, τ, measurement_variance)
+    kalman_update_step!(
+        state_space,
+        states,
+        current_observation,
+        τ,
+        measurement_variance,
+        observation_transform,
+    )
 
     return StateAndDistributions(state_space, predicted_observation_distributions)
 end # function
@@ -808,6 +819,7 @@ function kalman_update_step!(
     current_observation::Vector{<:AbstractFloat},
     τ::AbstractFloat,
     measurement_variance::AbstractFloat,
+    observation_transform,
 )
 
     current_number_of_states =
@@ -821,9 +833,6 @@ function kalman_update_step!(
             current_number_of_states,
             states,
         )
-
-    # This is F in the paper
-    observation_transform = [0.0 1.0]
 
     # This is P(t+Deltat,t+Deltat) in the paper
     predicted_final_covariance_matrix = calculate_final_covariance_matrix(
