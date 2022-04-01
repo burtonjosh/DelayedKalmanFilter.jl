@@ -211,7 +211,7 @@ function initialise_state_space_mean(states::TimeConstructor, steady_state)
 
     state_space_mean = Matrix{Float64}(undef, (states.total_number_of_states, 3))
 
-    state_space_mean[:, 1] .= LinRange(
+    state_space_mean[:, 1] = LinRange(
         -states.discrete_delay,
         states.total_number_of_states - states.discrete_delay - 1,
         states.total_number_of_states,
@@ -354,10 +354,10 @@ function predict_state_space_mean_one_step!(
         ] * current_mean + [model_parameters[5] * hill_function_value, 0]
     )
 
-    next_mean = current_mean .+ states.discretisation_time_step .* derivative_of_mean
+    next_mean = current_mean + states.discretisation_time_step * derivative_of_mean
     # ensures the prediction is non negative
-    next_mean[next_mean.<0] .= 0
-    state_space_mean[current_time_index+1, [2, 3]] .= next_mean
+    next_mean = max.(next_mean,0.0)
+    state_space_mean[current_time_index+1, [2, 3]] = next_mean
 
     return state_space_mean
 end
@@ -397,12 +397,12 @@ function calculate_variance_derivative(
     ]
 
     variance_change_current_contribution = (
-        instant_jacobian * current_covariance_matrix .+
+        instant_jacobian * current_covariance_matrix +
         current_covariance_matrix * instant_jacobian'
     )
 
     variance_change_past_contribution = (
-        delayed_jacobian * covariance_matrix_past_to_now .+
+        delayed_jacobian * covariance_matrix_past_to_now +
         covariance_matrix_now_to_past * delayed_jacobian'
     )
 
@@ -412,7 +412,7 @@ function calculate_variance_derivative(
     ]
 
     derivative_of_variance = (
-        variance_change_current_contribution .+ variance_change_past_contribution .+
+        variance_change_current_contribution + variance_change_past_contribution +
         variance_of_noise
     )
 
@@ -444,16 +444,18 @@ function predict_diagonal_variance_one_step!(
 
     # P(t+Deltat,t+Deltat)
     next_covariance_matrix =
-        current_covariance_matrix .+
-        states.discretisation_time_step .* derivative_of_variance
+        current_covariance_matrix +
+        states.discretisation_time_step*derivative_of_variance
     # ensure that the diagonal entries are non negative
     idx = diagind(next_covariance_matrix)
-    next_covariance_matrix[idx[next_covariance_matrix[idx].<0.0]] .= 0.0
+
+    next_covariance_matrix[idx] = max.(next_covariance_matrix[idx], 0.0)
+
 
     state_space_variance[
         [current_time_index + 1, states.total_number_of_states + current_time_index + 1],
         [current_time_index + 1, states.total_number_of_states + current_time_index + 1],
-    ] .= next_covariance_matrix
+    ] = next_covariance_matrix
 
     return state_space_variance
 end
@@ -485,11 +487,9 @@ function calculate_covariance_derivative(
     ]
 
 
-    return (
-        covariance_matrix_intermediate_to_current * instant_jacobian' .+
+    return covariance_matrix_intermediate_to_current * instant_jacobian' +
         covariance_matrix_intermediate_to_past * delayed_jacobian',
-        covariance_matrix_intermediate_to_current,
-    )
+        covariance_matrix_intermediate_to_current
 end
 
 function predict_off_diagonal_variance_one_step!(
@@ -515,19 +515,19 @@ function predict_off_diagonal_variance_one_step!(
 
     # This corresponds to P(s,t+Deltat) in the Calderazzo paper
     covariance_matrix_intermediate_to_next =
-        covariance_matrix_intermediate_to_current .+
-        states.discretisation_time_step .* covariance_derivative
+        covariance_matrix_intermediate_to_current +
+        states.discretisation_time_step * covariance_derivative
 
     # Fill in the big matrix
     state_space_variance[
         [intermediate_time_index, states.total_number_of_states + intermediate_time_index],
         [current_time_index + 1, states.total_number_of_states + current_time_index + 1],
-    ] .= covariance_matrix_intermediate_to_next
+    ] = covariance_matrix_intermediate_to_next
     # Fill in the big matrix with transpose arguments, i.e. P(t+Deltat, s) - works if initialised symmetrically
     state_space_variance[
         [current_time_index + 1, states.total_number_of_states + current_time_index + 1],
         [intermediate_time_index, states.total_number_of_states + intermediate_time_index],
-    ] .= covariance_matrix_intermediate_to_next'
+    ] = covariance_matrix_intermediate_to_next'
 
     return state_space_variance
 end
@@ -695,7 +695,7 @@ function calculate_helper_inverse(
     measurement_variance,
 )
 
-    1.0 ./ (
+    1.0 / (
         dot(
             observation_transform,
             predicted_final_covariance_matrix * observation_transform',
@@ -705,7 +705,7 @@ function calculate_helper_inverse(
 end
 
 function calculate_adaptation_coefficient(cov_matrix, observation_transform, helper_inverse)
-    sum(dot.(cov_matrix, observation_transform), dims = 2) .* helper_inverse
+    sum(dot.(cov_matrix, observation_transform), dims = 2) * helper_inverse
 end
 
 function calculate_shortened_covariance_matrix(
@@ -744,36 +744,6 @@ function calculate_final_covariance_matrix(
     ]
 end
 
-"""
-Take the stacked state space mean and return the updated state space mean in the original dimensions
-"""
-function update_shortened_covariance(
-    shortened_covariance_matrix,
-    adaptation_coefficient,
-    observation_transform,
-    current_observation,
-    predicted_final_state_space_mean,
-    states,
-)
-
-    stacked_state_space_mean .+= reshape(
-        adaptation_coefficient * (
-            current_observation[2] -
-            dot(observation_transform, predicted_final_state_space_mean)
-        ),
-        length(stacked_state_space_mean),
-    )
-    # ensure the mean mRNA and protein are non negative
-    stacked_state_space_mean[stacked_state_space_mean.<0.0] .= 0.0
-
-    updated_state_space_mean = hcat(
-        stacked_state_space_mean[1:(states.discrete_delay+1)],
-        stacked_state_space_mean[(states.discrete_delay+2):end],
-    )
-
-    return updated_state_space_mean
-end
-
 function update_variance!(
     state_space_variance,
     shortened_covariance_matrix,
@@ -784,18 +754,17 @@ function update_variance!(
 )
 
     updated_shortened_covariance_matrix = (
-        shortened_covariance_matrix .-
+        shortened_covariance_matrix -
         adaptation_coefficient *
         observation_transform *
         shortened_covariance_matrix[[states.discrete_delay + 1, end], :]
     )
 
     idx = diagind(updated_shortened_covariance_matrix)
-    updated_shortened_covariance_matrix[idx[updated_shortened_covariance_matrix[idx].<0.0]] .=
-        0.0
+    updated_shortened_covariance_matrix[idx] = max.(updated_shortened_covariance_matrix[idx], 0.0)
 
     # Fill in updated values
-    state_space_variance[all_indices_up_to_delay, all_indices_up_to_delay] .=
+    state_space_variance[all_indices_up_to_delay, all_indices_up_to_delay] =
         updated_shortened_covariance_matrix
 
     return state_space_variance
