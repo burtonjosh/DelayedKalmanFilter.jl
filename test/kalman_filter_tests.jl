@@ -6,23 +6,17 @@ using Test
     loading_path = string(pwd(), "/data/")
     protein_at_observations =
         readdlm(string(loading_path, "kalman_filter_test_trace_observations.csv"), ',')
-    model_parameters = ModelParameters()
+    model_parameters = [10000.0,5.0,log(2)/30,log(2)/90,1.0,1.0,29.0]
     measurement_variance = 10000.0
-    state_space_and_distributions =
+    mean, variance, distributions =
         kalman_filter(protein_at_observations, model_parameters, measurement_variance)
 
-    state_space = state_space_and_distributions.state_space
-    state_space_mean = state_space.mean
-    state_space_variance = state_space.variance
-
-    distributions = state_space_and_distributions.distributions
-
     # check arrays are correct shape
-    @test size(state_space_mean) ==
-          (protein_at_observations[end, 1] + 1 + model_parameters.τ, 3)
-    @test size(state_space_variance) == (
-        (protein_at_observations[end, 1] + 1 + model_parameters.τ) * 2,
-        (protein_at_observations[end, 1] + 1 + model_parameters.τ) * 2,
+    @test size(mean) ==
+          (protein_at_observations[end, 1] + 1 + model_parameters[7], 3)
+    @test size(variance) == (
+        (protein_at_observations[end, 1] + 1 + model_parameters[7]) * 2,
+        (protein_at_observations[end, 1] + 1 + model_parameters[7]) * 2,
     )
     @test size(distributions, 1) == size(protein_at_observations, 1)
 end

@@ -1,22 +1,22 @@
-Base.@kwdef struct ModelParameters{T<:AbstractFloat}
-    P₀::T = 10000.0
-    h::T = 5.0
-    μₘ::T = log(2) / 30
-    μₚ::T = log(2) / 90
-    αₘ::T = 1.0
-    αₚ::T = 1.0
-    τ::T = 29.0
-end
+# Base.@kwdef struct ModelParameters{T<:AbstractFloat}
+#     P₀::T = 10000.0
+#     h::T = 5.0
+#     μₘ::T = log(2) / 30
+#     μₚ::T = log(2) / 90
+#     αₘ::T = 1.0
+#     αₚ::T = 1.0
+#     τ::T = 29.0
+# end
 
-struct StateSpace{T<:AbstractFloat}
-    mean::Matrix{T}
-    variance::Matrix{T}
-end
+# struct StateSpace{T<:AbstractFloat}
+#     mean::Matrix{T}
+#     variance::Matrix{T}
+# end
 
-struct StateAndDistributions{T<:AbstractFloat}
-    state_space::StateSpace{T}
-    distributions::Vector{Normal{T}}
-end
+# struct StateAndDistributions{T<:AbstractFloat}
+#     state_space::StateSpace{T}
+#     distributions::Vector{Normal{T}}
+# end
 
 struct TimeConstructor{T<:Integer}
     number_of_observations::T
@@ -65,15 +65,16 @@ Calculate the mean and variance of the Normal approximation of the state space f
 time point in the Kalman filtering algorithm and return it as a Normal distribution
 """
 function distribution_prediction_at_given_time(
-    state_space::StateSpace,
+    state_space_mean,
+    state_space_variance,
     states::TimeConstructor,
     given_time::Integer,
     observation_transform::Matrix{<:AbstractFloat},
     measurement_variance::AbstractFloat,
 )
 
-    mean_prediction = dot(observation_transform, state_space.mean[given_time, 2:3])
-    last_predicted_covariance_matrix = state_space.variance[
+    mean_prediction = dot(observation_transform, state_space_mean[given_time, 2:3])
+    last_predicted_covariance_matrix = state_space_variance[
         [given_time, states.total_number_of_states + given_time],
         [given_time, states.total_number_of_states + given_time],
     ]
@@ -88,15 +89,16 @@ end
 
 # if no time given, use initial number of states
 function distribution_prediction_at_given_time(
-    state_space::StateSpace,
+    state_space_mean,
+    state_space_variance,
     states::TimeConstructor,
     observation_transform::Matrix{<:AbstractFloat},
     measurement_variance::AbstractFloat,
 )
 
     mean_prediction =
-        dot(observation_transform, state_space.mean[states.initial_number_of_states, 2:3])
-    last_predicted_covariance_matrix = state_space.variance[
+        dot(observation_transform, state_space_mean[states.initial_number_of_states, 2:3])
+    last_predicted_covariance_matrix = state_space_variance[
         [
             states.initial_number_of_states,
             states.total_number_of_states + states.initial_number_of_states,
@@ -149,16 +151,17 @@ copy numbers. This implements the filter described by Calderazzo et al., Bioinfo
 """
 function kalman_filter(
     protein_at_observations::Matrix{<:AbstractFloat},
-    model_parameters::ModelParameters,
+    model_parameters::Vector{<:AbstractFloat},
     measurement_variance::AbstractFloat,
 )
 
-    τ = model_parameters.τ
+    τ = model_parameters[7]
     # F in the paper
     observation_transform = [0.0 1.0]
     states = time_constructor_function(protein_at_observations, τ)
     # initialise state space and distribution predictions
-    state_space_and_distributions = kalman_filter_state_space_initialisation(
+    state_space_mean, state_space_variance, predicted_observation_distributions =
+    kalman_filter_state_space_initialisation(
         protein_at_observations,
         model_parameters,
         states,
@@ -170,7 +173,8 @@ function kalman_filter(
     for observation_index = 2:size(protein_at_observations, 1)
         current_observation = protein_at_observations[observation_index, :]
         kalman_prediction_step!(
-            state_space_and_distributions.state_space,
+            state_space_mean,
+            state_space_variance,
             states,
             current_observation,
             model_parameters,
@@ -178,16 +182,18 @@ function kalman_filter(
         current_number_of_states =
             calculate_current_number_of_states(current_observation[1], states, τ)
         # between the prediction and update steps we record the normal distributions for our likelihood
-        state_space_and_distributions.distributions[observation_index] =
+        predicted_observation_distributions[observation_index] =
             distribution_prediction_at_given_time(
-                state_space_and_distributions.state_space,
+                state_space_mean,
+                state_space_variance,
                 states,
                 current_number_of_states,
                 observation_transform,
                 measurement_variance,
             )
         kalman_update_step!(
-            state_space_and_distributions.state_space,
+            state_space_mean,
+            state_space_variance,
             states,
             current_observation,
             τ,
@@ -195,7 +201,7 @@ function kalman_filter(
             observation_transform,
         )
     end # for
-    return state_space_and_distributions
+    return state_space_mean, state_space_variance, predicted_observation_distributions
 end # function
 
 """
@@ -226,7 +232,7 @@ function initialise_state_space_variance(
     protein_scaling::AbstractFloat = 100.0,
 )
 
-    state_space_variance = Array{AbstractFloat}(
+    state_space_variance = Matrix{Float64}(
         undef,
         2 * (states.total_number_of_states),
         2 * (states.total_number_of_states),
@@ -266,27 +272,28 @@ and then updates them with kalman_update_step.
 """
 function kalman_filter_state_space_initialisation(
     protein_at_observations::Matrix{<:AbstractFloat},
-    model_parameters::ModelParameters,
+    model_parameters::Vector{<:AbstractFloat},
     states::TimeConstructor,
     observation_transform,
     measurement_variance::AbstractFloat = 10.0,
 )
 
-    τ = model_parameters.τ
+    τ = model_parameters[7]
 
-    # states = time_constructor_function(protein_at_observations, τ)
+    states = time_constructor_function(protein_at_observations, τ)
     steady_state = calculate_steady_state_of_ode(model_parameters)
 
     # construct state space
     state_space_mean = initialise_state_space_mean(states, steady_state)
     state_space_variance = initialise_state_space_variance(states, steady_state)
-    state_space = StateSpace{Float64}(state_space_mean, state_space_variance)
+    # state_space = StateSpace{Float64}(state_space_mean, state_space_variance)
 
     # initialise distributions
     predicted_observation_distributions =
         Array{Normal{Float64}}(undef, states.number_of_observations)
     predicted_observation_distributions[1] = distribution_prediction_at_given_time(
-        state_space,
+        state_space_mean,
+        state_space_variance,
         states,
         observation_transform,
         measurement_variance,
@@ -294,7 +301,8 @@ function kalman_filter_state_space_initialisation(
     # update the past ("negative time")
     current_observation = protein_at_observations[1, :]
     kalman_update_step!(
-        state_space,
+        state_space_mean,
+        state_space_variance,
         states,
         current_observation,
         τ,
@@ -302,19 +310,19 @@ function kalman_filter_state_space_initialisation(
         observation_transform,
     )
 
-    return StateAndDistributions(state_space, predicted_observation_distributions)
+    return state_space_mean, state_space_variance, predicted_observation_distributions
 end # function
 
-function construct_instant_jacobian(model_parameters::ModelParameters)
+function construct_instant_jacobian(model_parameters::Vector{<:AbstractFloat})
     [
-        -model_parameters.μₘ 0.0
-        model_parameters.αₚ -model_parameters.μₚ
+        -model_parameters[3] 0.0
+        model_parameters[6] -model_parameters[4]
     ]
 end
 
-function construct_delayed_jacobian(model_parameters::ModelParameters, past_protein)
+function construct_delayed_jacobian(model_parameters::Vector{<:AbstractFloat}, past_protein)
     [
-        0.0 model_parameters.αₘ*∂hill∂p(past_protein, model_parameters.P₀, model_parameters.h)
+        0.0 model_parameters[5]*∂hill∂p(past_protein, model_parameters[1], model_parameters[2])
         0.0 0.0
     ]
 end
@@ -342,9 +350,9 @@ function predict_state_space_mean_one_step!(
     # derivative of mean is contributions from instant reactions + contributions from past reactions
     derivative_of_mean = (
         [
-            -model_parameters.μₘ 0.0
-            model_parameters.αₚ -model_parameters.μₚ
-        ] * current_mean + [model_parameters.αₘ * hill_function_value, 0]
+            -model_parameters[3] 0.0
+            model_parameters[6] -model_parameters[4]
+        ] * current_mean + [model_parameters[5] * hill_function_value, 0]
     )
 
     next_mean = current_mean .+ states.discretisation_time_step .* derivative_of_mean
@@ -400,8 +408,8 @@ function calculate_variance_derivative(
     )
 
     variance_of_noise = [
-        model_parameters.μₘ*current_mean[1]+model_parameters.αₘ*hill_function_value 0
-        0 model_parameters.αₚ*current_mean[1]+model_parameters.μₚ*current_mean[2]
+        model_parameters[3]*current_mean[1]+model_parameters[5]*hill_function_value 0
+        0 model_parameters[6]*current_mean[1]+model_parameters[4]*current_mean[2]
     ]
 
     derivative_of_variance = (
@@ -548,13 +556,16 @@ approximated using a forward Euler scheme.
 - `state_space::StateSpace`: TODO
 """
 function kalman_prediction_step!(
-    state_space::StateSpace,
+    state_space_mean,
+    state_space_variance,
     states::TimeConstructor,
     current_observation::Vector{<:AbstractFloat},
-    model_parameters::ModelParameters,
+    model_parameters::Vector{<:AbstractFloat},
 )
 
-    @unpack P₀, h, μₘ, μₚ, αₘ, αₚ, τ = model_parameters
+    τ = model_parameters[7]
+
+    # @unpack P₀, h, μₘ, μₚ, αₘ, αₚ, τ = model_parameters
     # this is the number of states at t, i.e. before predicting towards t+observation_time_step
     current_number_of_states = calculate_current_number_of_states(
         current_observation[1] - states.number_of_hidden_states,
@@ -568,7 +579,7 @@ function kalman_prediction_step!(
         current_number_of_states:current_number_of_states+states.number_of_hidden_states-1
 
         past_time_index, current_mean, past_protein = get_current_and_past_mean(
-            state_space.mean,
+            state_space_mean,
             current_time_index,
             states.discrete_delay,
         )
@@ -577,21 +588,21 @@ function kalman_prediction_step!(
         delayed_jacobian = construct_delayed_jacobian(model_parameters, past_protein)
 
         predict_state_space_mean_one_step!(
-            state_space.mean,
+            state_space_mean,
             current_time_index,
             current_mean,
             model_parameters,
             states,
-            hill_function(past_protein, model_parameters.P₀, model_parameters.h),
+            hill_function(past_protein, model_parameters[1], model_parameters[2]),
         )
 
         predict_diagonal_variance_one_step!(
-            state_space.variance,
+            state_space_variance,
             current_time_index,
             current_mean,
             model_parameters,
             states,
-            hill_function(past_protein, model_parameters.P₀, model_parameters.h),
+            hill_function(past_protein, model_parameters[1], model_parameters[2]),
             instant_jacobian,
             delayed_jacobian,
         )
@@ -599,7 +610,7 @@ function kalman_prediction_step!(
         # predict the cross correlations, P(t-τ:t,t+Δt)
         for intermediate_time_index = past_time_index:current_time_index
             predict_off_diagonal_variance_one_step!(
-                state_space.variance,
+                state_space_variance,
                 current_time_index,
                 intermediate_time_index,
                 current_mean,
@@ -609,7 +620,7 @@ function kalman_prediction_step!(
             )
         end
     end # for
-    return state_space
+    return state_space_mean, state_space_variance
 end # function
 
 """
@@ -814,7 +825,8 @@ This assumes that the observations are collected at fixed time intervals.
 
 """
 function kalman_update_step!(
-    state_space::StateSpace,
+    state_space_mean,
+    state_space_variance,
     states::TimeConstructor,
     current_observation::Vector{<:AbstractFloat},
     τ::AbstractFloat,
@@ -829,14 +841,14 @@ function kalman_update_step!(
     # corresponds to P(t+Deltat-delay:t+deltat,t+Deltat-delay:t+deltat)
     shortened_covariance_matrix, all_indices_up_to_delay =
         calculate_shortened_covariance_matrix(
-            state_space.variance,
+            state_space_variance,
             current_number_of_states,
             states,
         )
 
     # This is P(t+Deltat,t+Deltat) in the paper
     predicted_final_covariance_matrix = calculate_final_covariance_matrix(
-        state_space.variance,
+        state_space_variance,
         current_number_of_states,
         states,
     )
@@ -856,7 +868,7 @@ function kalman_update_step!(
     )
     # this is ρ*
     update_mean!(
-        state_space.mean,
+        state_space_mean,
         current_number_of_states,
         states,
         adaptation_coefficient,
@@ -865,12 +877,12 @@ function kalman_update_step!(
     )
     # This is P*
     update_variance!(
-        state_space.variance,
+        state_space_variance,
         shortened_covariance_matrix,
         all_indices_up_to_delay,
         states,
         adaptation_coefficient,
         observation_transform,
     )
-    return state_space
+    return state_space_mean, state_space_variance
 end # function

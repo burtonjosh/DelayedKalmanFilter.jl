@@ -10,10 +10,8 @@ Parameters
     number of observation time points. For each data set, the first column is the time,
     and the second column is the observed protein copy number at that time.
 
-- `model_parameters::ModelParameters`: An array containing the model parameters in the
-    following order: P₀, h, μₘ,
-    μₚ, αₘ, αₚ,
-    transcription_delay.
+- `model_parameters::Vector{<:AbstractFloat}`: An array containing the model parameters in the
+    following order: P₀, h, μₘ, μₚ, αₘ, αₚ, τ.
 
 measurement_variance : float.
     The variance in our measurement. This is given by Sigma_e in Calderazzo et. al. (2018).
@@ -26,23 +24,18 @@ log_likelihood : float.
 """
 function calculate_log_likelihood_at_parameter_point(
     protein_at_observations::AbstractArray{<:Real},
-    model_parameters::ModelParameters,
+    model_parameters::Vector{<:AbstractFloat},
     measurement_variance::Real,
 )
     size(protein_at_observations, 2) == 2 ||
         throw(ArgumentError("observation matrix must be N × 2"))
 
-    if any(
-        [
-            getfield(model_parameters, fieldname) for
-            fieldname in fieldnames(ModelParameters)
-        ] .<= 0,
-    )
+    if any(model_parameters .<= 0.0)
         return -Inf
     end
 
-    state_space_and_distributions =
+    _, _, distributions =
         kalman_filter(protein_at_observations, model_parameters, measurement_variance)
     observations = protein_at_observations[:, 2]
-    return sum(logpdf.(state_space_and_distributions.distributions, observations))
+    return sum(logpdf.(distributions, observations))
 end
