@@ -280,7 +280,6 @@ function kalman_filter_state_space_initialisation(
 
     τ = model_parameters[7]
 
-    states = time_constructor_function(protein_at_observations, τ)
     steady_state = calculate_steady_state_of_ode(model_parameters)
 
     # construct state space
@@ -380,19 +379,19 @@ function calculate_variance_derivative(
     past_time_index = current_time_index - states.discrete_delay
 
     # P(t,t)
-    current_covariance_matrix = state_space_variance[
+    @views current_covariance_matrix = state_space_variance[
         [current_time_index, states.total_number_of_states + current_time_index],
         [current_time_index, states.total_number_of_states + current_time_index],
     ]
 
     # P(t-tau,t)
-    covariance_matrix_past_to_now = state_space_variance[
+    @views covariance_matrix_past_to_now = state_space_variance[
         [past_time_index, states.total_number_of_states + past_time_index],
         [current_time_index, states.total_number_of_states + current_time_index],
     ]
 
     # P(t,t-tau)
-    covariance_matrix_now_to_past = state_space_variance[
+    @views covariance_matrix_now_to_past = state_space_variance[
         [current_time_index, states.total_number_of_states + current_time_index],
         [past_time_index, states.total_number_of_states + past_time_index],
     ]
@@ -475,12 +474,12 @@ function calculate_covariance_derivative(
     past_time_index = current_time_index - states.discrete_delay
 
     # P(s,t)
-    covariance_matrix_intermediate_to_current = state_space_variance[
+    @views covariance_matrix_intermediate_to_current = state_space_variance[
         [intermediate_time_index, states.total_number_of_states + intermediate_time_index],
         [current_time_index, states.total_number_of_states + current_time_index],
     ]
     # P(s,t-tau)
-    covariance_matrix_intermediate_to_past = state_space_variance[
+    @views covariance_matrix_intermediate_to_past = state_space_variance[
         [intermediate_time_index, states.total_number_of_states + intermediate_time_index],
         [past_time_index, states.total_number_of_states + past_time_index],
     ]
