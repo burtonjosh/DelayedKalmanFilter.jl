@@ -339,6 +339,121 @@ function get_current_and_past_mean(state_space_mean, current_time_index, discret
 end
 
 """
+Predict state space mean to the next observation time index
+"""
+function predict_state_space_mean!(
+    state_space_mean,
+    current_number_of_states,
+    current_mean,
+    model_parameters,
+    states
+    )
+
+    function state_space_mean_RHS(du,u,p,t) # is there some way for this function to not be nested? does it matter?
+        # past_protein = h(p,t-p[7]) # TODO define history function
+        past_index = Int(t) - states.discrete_delay
+        past_protein = state_space_mean[past_index,3] # currently indexing array rather than using history function
+        du[1] = -p[3]*u[1] + p[5]*hill_function(past_protein, p[1], p[2])
+        du[2] = p[6]*u[1] - p[4]*u[2]
+    end
+
+    tspan = (current_number_of_states,current_number_of_states+states.number_of_hidden_states)
+    mean_prob = ODEProblem(state_space_mean_RHS,
+                           current_mean,#state_space_mean[current_number_of_states,[2,3]],
+                           # mean_history,
+                           tspan,
+                           model_parameters)#; constant_lags=[transcription_delay])
+    mean_solution = solve(mean_prob,Euler(),dt=1.,adaptive=false,saveat=1.,mindt=1.,maxdt=1.)
+    # mean_solution_dict[prediction_index] = mean_solution
+    state_space_mean[(current_number_of_states + 1):(current_number_of_states + states.number_of_hidden_states),2:3] = hcat(mean_solution.(tspan[1]+1:tspan[2])...)'#mean_solution.(tspan[1]+1:tspan[2])
+    # state_space_mean[(current_number_of_states + 1):(current_number_of_states + states.number_of_hidden_states),2] = [mean_solution(i)[1] for i in tspan[1]+1:tspan[2]]
+    # state_space_mean[(current_number_of_states + 1):(current_number_of_states + states.number_of_hidden_states),3] = [mean_solution(i)[2] for i in tspan[1]+1:tspan[2]]
+end
+
+"""
+Predict state space variance to the next observation time index
+"""
+function predict_state_space_variance!(
+    state_space_mean,
+    state_space_variance,
+    current_number_of_states,
+    model_parameters,
+    states,
+    instant_jacobian
+    )
+
+    function state_space_variance_RHS(du,u,p,t)
+        # past_protein = h(p,t-p[7])
+        past_index = Int(t) - states.discrete_delay
+        # assign diagonal prediction so we can do the off diagonals at each step
+        state_space_variance[[Int(t),states.total_number_of_states+Int(t)],
+                             [Int(t),states.total_number_of_states+Int(t)]] = u
+
+        past_protein = state_space_mean[past_index,3]
+        current_mean = state_space_mean[Int(t),2:3]
+        past_to_now_diagonal_variance = state_space_variance[[past_index,states.total_number_of_states+past_index],
+                                                             [Int(t),states.total_number_of_states+Int(t)]]
+        delayed_jacobian = construct_delayed_jacobian(model_parameters, past_protein)
+
+        variance_of_noise = [p[3]*current_mean[1]+p[5]*hill_function(past_protein, p[1], p[2]) 0.0;
+                             0.0 p[6]*current_mean[1]+p[4]*current_mean[2]]
+         println(variance_of_noise)
+
+        du = instant_jacobian*u + u*instant_jacobian' +
+             delayed_jacobian*past_to_now_diagonal_variance +
+             past_to_now_diagonal_variance'*delayed_jacobian' +
+             variance_of_noise
+
+        ## at each step we need to calculate off diagonals
+        if t < tspan[2]
+            for intermediate_time_index in past_index:Int(t)
+
+                function off_diagonal_state_space_variance_RHS(du,u,p,diag_t)
+                    covariance_matrix_intermediate_to_past = state_space_variance[[Int(diag_t),
+                                                                                   states.total_number_of_states+Int(diag_t)],
+                                                                                  [past_index,
+                                                                                   states.total_number_of_states+past_index]]
+
+                    du = u*instant_jacobian' +
+                         covariance_matrix_intermediate_to_past*delayed_jacobian'
+                end # function
+
+                covariance_matrix_intermediate_to_current = state_space_variance[[intermediate_time_index,
+                                                                                  states.total_number_of_states+intermediate_time_index],
+                                                                                  [Int(t),
+                                                                                   states.total_number_of_states+Int(t)]]
+
+                diag_tspan = (Float64(intermediate_time_index),Float64(intermediate_time_index)+1)
+                off_diag_prob = ODEProblem(off_diagonal_state_space_variance_RHS,
+                                           covariance_matrix_intermediate_to_current,# P(s,t)
+                                           # mean_history,
+                                           diag_tspan,
+                                           model_parameters)#; constant_lags=[transcription_delay])
+                off_diag_solution = solve(off_diag_prob,Euler(),dt=1.,adaptive=false,saveat=1.,mindt=1.,maxdt=1.)
+
+                # Fill in the big matrix
+                state_space_variance[[intermediate_time_index,
+                                      states.total_number_of_states+intermediate_time_index],
+                                     [Int(t)+1,
+                                      states.total_number_of_states+Int(t)+1]] = off_diag_solution(intermediate_time_index+1)
+                state_space_variance[[Int(t)+1,
+                                      states.total_number_of_states+Int(t)+1],
+                                     [intermediate_time_index,
+                                      states.total_number_of_states+intermediate_time_index]] = off_diag_solution(intermediate_time_index+1)'
+            end # intermediate time index for
+        end
+    end
+    tspan = (current_number_of_states,current_number_of_states+states.number_of_hidden_states)
+    current_variance = state_space_variance[[current_number_of_states, states.total_number_of_states + current_number_of_states],
+                                            [current_number_of_states, states.total_number_of_states + current_number_of_states]]
+    variance_prob = ODEProblem(state_space_variance_RHS,
+                               current_variance,
+                               tspan,
+                               model_parameters)
+    solve(variance_prob,Euler(),dt=1.,adaptive=false,saveat=1.,mindt=1.,maxdt=1.)
+end
+
+"""
 Predict state space mean one time step forward to 'next_time_index'
 """
 function predict_state_space_mean_one_step!(
@@ -572,51 +687,68 @@ function kalman_prediction_step!(
 
     instant_jacobian = construct_instant_jacobian(model_parameters)
 
-    for current_time_index =
-        current_number_of_states:current_number_of_states+states.number_of_hidden_states-1
-
-        past_time_index, current_mean, past_protein = get_current_and_past_mean(
-            state_space_mean,
-            current_time_index,
-            states.discrete_delay,
+    predict_state_space_mean!(
+        state_space_mean,
+        current_number_of_states,
+        state_space_mean[current_number_of_states, 2:3],
+        model_parameters,
+        states
         )
 
-        # delayed_jacobian derivative of f with respect to past state ([past_mRNA, past_protein])
-        delayed_jacobian = construct_delayed_jacobian(model_parameters, past_protein)
-
-        predict_state_space_mean_one_step!(
-            state_space_mean,
-            current_time_index,
-            current_mean,
-            model_parameters,
-            states,
-            hill_function(past_protein, model_parameters[1], model_parameters[2]),
+    predict_state_space_variance!(
+        state_space_mean,
+        state_space_variance,
+        current_number_of_states,
+        model_parameters,
+        states,
+        instant_jacobian
         )
 
-        predict_diagonal_variance_one_step!(
-            state_space_variance,
-            current_time_index,
-            current_mean,
-            model_parameters,
-            states,
-            hill_function(past_protein, model_parameters[1], model_parameters[2]),
-            instant_jacobian,
-            delayed_jacobian,
-        )
-
-        # predict the cross correlations, P(t-τ:t,t+Δt)
-        for intermediate_time_index = past_time_index:current_time_index
-            predict_off_diagonal_variance_one_step!(
-                state_space_variance,
-                current_time_index,
-                intermediate_time_index,
-                current_mean,
-                states,
-                instant_jacobian,
-                delayed_jacobian,
-            )
-        end
-    end # for
+    # for current_time_index =
+    #     current_number_of_states:current_number_of_states+states.number_of_hidden_states-1
+    #
+    #     past_time_index, current_mean, past_protein = get_current_and_past_mean(
+    #         state_space_mean,
+    #         current_time_index,
+    #         states.discrete_delay,
+    #     )
+    #
+    #     # delayed_jacobian derivative of f with respect to past state ([past_mRNA, past_protein])
+    #     delayed_jacobian = construct_delayed_jacobian(model_parameters, past_protein)
+    #
+    #     # predict_state_space_mean_one_step!(
+    #     #     state_space_mean,
+    #     #     current_time_index,
+    #     #     current_mean,
+    #     #     model_parameters,
+    #     #     states,
+    #     #     hill_function(past_protein, model_parameters[1], model_parameters[2]),
+    #     # )
+    #
+    #     predict_diagonal_variance_one_step!(
+    #         state_space_variance,
+    #         current_time_index,
+    #         current_mean,
+    #         model_parameters,
+    #         states,
+    #         hill_function(past_protein, model_parameters[1], model_parameters[2]),
+    #         instant_jacobian,
+    #         delayed_jacobian,
+    #     )
+    #
+    #     # predict the cross correlations, P(t-τ:t,t+Δt)
+    #     for intermediate_time_index = past_time_index:current_time_index
+    #         predict_off_diagonal_variance_one_step!(
+    #             state_space_variance,
+    #             current_time_index,
+    #             intermediate_time_index,
+    #             current_mean,
+    #             states,
+    #             instant_jacobian,
+    #             delayed_jacobian,
+    #         )
+    #     end
+    # end # for
     return state_space_mean, state_space_variance
 end # function
 
