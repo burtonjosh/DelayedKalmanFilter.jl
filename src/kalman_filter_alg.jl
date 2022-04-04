@@ -397,9 +397,8 @@ function predict_state_space_variance!(
 
         variance_of_noise = [p[3]*current_mean[1]+p[5]*hill_function(past_protein, p[1], p[2]) 0.0;
                              0.0 p[6]*current_mean[1]+p[4]*current_mean[2]]
-         println(variance_of_noise)
 
-        du = instant_jacobian*u + u*instant_jacobian' +
+        du .= instant_jacobian*u + u*instant_jacobian' +
              delayed_jacobian*past_to_now_diagonal_variance +
              past_to_now_diagonal_variance'*delayed_jacobian' +
              variance_of_noise
@@ -414,7 +413,7 @@ function predict_state_space_variance!(
                                                                                   [past_index,
                                                                                    states.total_number_of_states+past_index]]
 
-                    du = u*instant_jacobian' +
+                    du .= u*instant_jacobian' +
                          covariance_matrix_intermediate_to_past*delayed_jacobian'
                 end # function
 
