@@ -179,8 +179,11 @@ function kalman_filter(
             current_observation,
             model_parameters,
         )
-        current_number_of_states =
-            calculate_current_number_of_states(current_observation[1], states, τ)
+        current_number_of_states = calculate_current_number_of_states(
+            current_observation[1],
+            states,
+            τ
+        )
         # between the prediction and update steps we record the normal distributions for our likelihood
         predicted_observation_distributions[observation_index] =
             distribution_prediction_at_given_time(
@@ -209,7 +212,7 @@ Initialse the state space mean for a given set of time states and the ODE system
 """
 function initialise_state_space_mean(states::TimeConstructor, steady_state)
 
-    state_space_mean = Matrix{Float64}(undef, (states.total_number_of_states, 3))
+    state_space_mean = Matrix{Float64}(undef, states.total_number_of_states, 3)
 
     state_space_mean[:, 1] = LinRange(
         -states.discrete_delay,
@@ -234,8 +237,8 @@ function initialise_state_space_variance(
 
     state_space_variance = Matrix{Float64}(
         undef,
-        2 * (states.total_number_of_states),
-        2 * (states.total_number_of_states),
+        2*states.total_number_of_states,
+        2*states.total_number_of_states,
     )
 
     diag_indices = diagind(state_space_variance)
@@ -312,14 +315,14 @@ function kalman_filter_state_space_initialisation(
     return state_space_mean, state_space_variance, predicted_observation_distributions
 end # function
 
-function construct_instant_jacobian(model_parameters::Vector{<:AbstractFloat})
+function construct_instant_jacobian(model_parameters)
     [
         -model_parameters[3] 0.0
         model_parameters[6] -model_parameters[4]
     ]
 end
 
-function construct_delayed_jacobian(model_parameters::Vector{<:AbstractFloat}, past_protein)
+function construct_delayed_jacobian(model_parameters, past_protein)
     [
         0.0 model_parameters[5]*∂hill∂p(past_protein, model_parameters[1], model_parameters[2])
         0.0 0.0
@@ -331,7 +334,7 @@ Returns past time, current mean and past protein
 """
 function get_current_and_past_mean(state_space_mean, current_time_index, discrete_delay)
     return current_time_index - discrete_delay,
-    state_space_mean[current_time_index, [2, 3]],
+    state_space_mean[current_time_index, 2:3],
     state_space_mean[current_time_index-discrete_delay, 3]
 end
 
@@ -349,15 +352,15 @@ function predict_state_space_mean_one_step!(
     # derivative of mean is contributions from instant reactions + contributions from past reactions
     derivative_of_mean = (
         [
-            -model_parameters[3] 0.0
+            -model_parameters[3] 0.0;
             model_parameters[6] -model_parameters[4]
-        ] * current_mean + [model_parameters[5] * hill_function_value, 0]
+        ] * current_mean .+ [model_parameters[5] * hill_function_value, 0.0]
     )
 
-    next_mean = current_mean + states.discretisation_time_step * derivative_of_mean
+    next_mean = current_mean .+ states.discretisation_time_step*derivative_of_mean
     # ensures the prediction is non negative
     next_mean = max.(next_mean,0.0)
-    state_space_mean[current_time_index+1, [2, 3]] = next_mean
+    state_space_mean[current_time_index+1, 2:3] = next_mean
 
     return state_space_mean
 end
@@ -396,25 +399,20 @@ function calculate_variance_derivative(
         [past_time_index, states.total_number_of_states + past_time_index],
     ]
 
-    variance_change_current_contribution = (
-        instant_jacobian * current_covariance_matrix +
+    variance_change_current_contribution = instant_jacobian * current_covariance_matrix +
         current_covariance_matrix * instant_jacobian'
-    )
 
-    variance_change_past_contribution = (
-        delayed_jacobian * covariance_matrix_past_to_now +
+    variance_change_past_contribution = delayed_jacobian * covariance_matrix_past_to_now +
         covariance_matrix_now_to_past * delayed_jacobian'
-    )
 
     variance_of_noise = [
-        model_parameters[3]*current_mean[1]+model_parameters[5]*hill_function_value 0
-        0 model_parameters[6]*current_mean[1]+model_parameters[4]*current_mean[2]
+        model_parameters[3]*current_mean[1]+model_parameters[5]*hill_function_value 0.0
+        0.0 model_parameters[6]*current_mean[1]+model_parameters[4]*current_mean[2]
     ]
 
-    derivative_of_variance = (
-        variance_change_current_contribution + variance_change_past_contribution +
+    derivative_of_variance = variance_change_current_contribution +
+        variance_change_past_contribution +
         variance_of_noise
-    )
 
     return derivative_of_variance, current_covariance_matrix
 
