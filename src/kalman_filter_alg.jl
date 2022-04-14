@@ -384,7 +384,7 @@ function predict_state_space_variance!(
 
         ## at each step we need to calculate off diagonals
         if t < tspan[2]
-            for intermediate_time_index in past_index:Int(t)
+            for intermediate_time_index in past_index+1:Int(t)
 
                 function off_diagonal_state_space_variance_RHS(du,u,p,diag_t)
                     covariance_matrix_intermediate_to_past = state_space_variance[[Int(diag_t),
