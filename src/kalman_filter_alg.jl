@@ -453,8 +453,7 @@ function kalman_prediction_step!(
     end # function
 
     function off_diagonal_state_space_variance_RHS(du,u,p,diag_t)
-        past_index = Int(diag_t) - states.discrete_delay
-
+        past_index = Int(diag_t) - states.discrete_delay # t - τ
         if past_index < 1
             past_protein = 0.0#state_space_mean[past_time_index,3]
         else
@@ -467,8 +466,8 @@ function kalman_prediction_step!(
         if diag_t < 1 || past_index < 1
             covariance_matrix_intermediate_to_past = zeros(2,2)
         else
-            covariance_matrix_intermediate_to_past = state_space_variance[[Int(diag_t),
-                                                                           states.total_number_of_states+Int(diag_t)],
+            covariance_matrix_intermediate_to_past = state_space_variance[[p,
+                                                                           states.total_number_of_states+p],
                                                                           [past_index,
                                                                            states.total_number_of_states+past_index]]
        end
@@ -488,7 +487,7 @@ function kalman_prediction_step!(
         off_diag_prob = ODEProblem(off_diagonal_state_space_variance_RHS,
                                    initial_covariance,# P(t,s)
                                    diag_tspan,
-                                   model_parameters)
+                                   current_number_of_states)#model_parameters)
         off_diag_solution = solve(off_diag_prob,Euler(),dt=1.,adaptive=false,saveat=1.,mindt=1.,maxdt=1.)
         # Fill in the big matrix
         for index in current_number_of_states+1:current_number_of_states+states.number_of_hidden_states
@@ -527,7 +526,7 @@ function kalman_prediction_step!(
             off_diag_prob = ODEProblem(off_diagonal_state_space_variance_RHS,
                                        covariance_matrix_intermediate,# P(s,s)
                                        diag_tspan,
-                                       model_parameters)
+                                       intermediate_time_index)#model_parameters)
             off_diag_solution = solve(off_diag_prob,Euler(),dt=1.,adaptive=false,saveat=1.,mindt=1.,maxdt=1.)
 
             # Fill in the big matrix
@@ -558,7 +557,7 @@ function kalman_prediction_step!(
             off_diag_prob = ODEProblem(off_diagonal_state_space_variance_RHS,
                                        covariance_matrix_intermediate_to_current,# P(s,t)
                                        diag_tspan,
-                                       model_parameters)
+                                       intermediate_time_index)#model_parameters)
             off_diag_solution = solve(off_diag_prob,Euler(),dt=1.,adaptive=false,saveat=1.,mindt=1.,maxdt=1.)
 
             # Fill in the big matrix
@@ -601,7 +600,7 @@ function kalman_prediction_step!(
             off_diag_prob = ODEProblem(off_diagonal_state_space_variance_RHS,
                                        covariance_matrix_intermediate,# P(s,s)
                                        diag_tspan,
-                                       model_parameters)
+                                       intermediate_time_index)#model_parameters)
             off_diag_solution = solve(off_diag_prob,Euler(),dt=1.,adaptive=false,saveat=1.,mindt=1.,maxdt=1.)
 
             # Fill in the big matrix
