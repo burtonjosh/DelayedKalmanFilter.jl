@@ -139,7 +139,6 @@ function kalman_filter(
     # F in the paper
     observation_transform = [0.0 1.0]
     states = time_constructor_function(protein_at_observations, τ)
-    println(states)
     # initialise state space and distribution predictions
     state_space_mean, state_space_variance, predicted_observation_distributions =
     kalman_filter_state_space_initialisation(
@@ -153,9 +152,6 @@ function kalman_filter(
     # loop through observations and at each observation apply the Kalman prediction step and then the update step
     for observation_index = 2:size(protein_at_observations, 1)
         current_observation = protein_at_observations[observation_index, :]
-        if observation_index == 4
-            writedlm("before_pred.csv",state_space_variance)
-        end
         kalman_prediction_step!(
             state_space_mean,
             state_space_variance,
@@ -163,9 +159,6 @@ function kalman_filter(
             current_observation,
             model_parameters,
         )
-        if observation_index == 4
-            writedlm("after_pred.csv",state_space_variance)
-        end
         current_number_of_states = calculate_current_number_of_states(
             current_observation[1],
             states,
@@ -190,9 +183,6 @@ function kalman_filter(
             measurement_variance,
             observation_transform,
         )
-        if observation_index == 4
-            writedlm("after_update.csv",state_space_variance)
-        end
     end # for
     return state_space_mean, state_space_variance, predicted_observation_distributions
 end # function
@@ -573,7 +563,7 @@ function kalman_prediction_step!(
 
             # Fill in the big matrix
             for index in current_number_of_states+1:current_number_of_states+states.number_of_hidden_states
-                if index - intermediate_time_index <= states.discrete_delay+1 # this is hacky -- fix above to do less computations
+                if index - intermediate_time_index <= states.discrete_delay # this is hacky -- fix above to do less computations
                 state_space_variance[[intermediate_time_index,
                                       states.total_number_of_states+intermediate_time_index],
                                      [index,
