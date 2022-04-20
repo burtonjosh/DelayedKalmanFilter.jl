@@ -110,6 +110,12 @@ function calculate_current_number_of_states(
 end
 
 """
+    kalman_filter(
+        protein_at_observations::Matrix{<:AbstractFloat},
+        model_parameters::Vector{<:AbstractFloat},
+        measurement_variance::AbstractFloat,
+    )
+
 Perform a delay-adjusted non-linear stochastic Kalman filter based on observation of protein
 copy numbers. This implements the filter described by Calderazzo et al., Bioinformatics (2018).
 
@@ -126,8 +132,29 @@ copy numbers. This implements the filter described by Calderazzo et al., Bioinfo
 - `measurement_variance::Real`: The variance in our measurement. This is given by Sigma epsilon in Calderazzo et. al. (2018).
 
 # Returns
+- `state_space_mean::Matrix{<:AbstractFloat}`: An N x 3 matrix, where N is the total number of states. The columns are time, mRNA
+    and protein respectively.
 
-- `state_space_and_distributions::StateAndDistributions`: TODO
+- `state_space_variance::Matrix{<:AbstractFloat}`: An 2N x 2N matrix where N is the total number of states. It is constructed as a 2 x 2 block
+    matrix, where the blocks give the covariance of (mRNA, mRNA), (mRNA, protein), (protein, mRNA), and (protein, protein) for all times (t,s) where
+    abs(t -s) <= τ, the transcriptional time delay.
+
+- `predicted_observation_distributions::Array{Normal{Float64}}`: An array of length n, whose entries are Normal distributions with mean and variance
+    equal to the state space mean and variance predictions for the corresponding time point.
+
+# Example
+```jldoctest
+julia> protein = [0. 105.; 10. 100.; 20. 98.] # times are 0., 10., 20., and protein levels are 105., 100., and 98. respectively
+julia> model_parameters = [100.0, 5.0, 0.1, 0.1, 1.0, 1.0, 15.0];
+julia> measurement_variance = 1000.0;
+julia> ss_mean, ss_var, distributions = kalman_filter(
+           protein,
+           model_parameters,
+           measurement_variance
+       );
+julia> distributions[1]
+Distributions.Normal{Float64}(μ=77.80895986786031, σ=93.7064351407417)
+```
 """
 function kalman_filter(
     protein_at_observations::Matrix{<:AbstractFloat},
@@ -246,11 +273,24 @@ and then updates them with kalman_update_step.
     repression threshold, hill coefficient, mRNA degradation rate,protein degradation rate, basal transcription rate,
     translation rate, time delay.
 
+- `states::TimeConstructor`: A TimeConstructor whose fields define various values relevant to number of states, e.g. discrete_delay,
+    total_number_of_states, etc.
+
+- `observation_transform`: A 1 x 2 matrix corresponding to the transformation from observed data to molecule number, for mRNA and protein
+    respectively.
+
 - `measurement_variance::Real`: The variance in our measurement. This is given by Sigma epsilon in Calderazzo et. al. (2018).
 
 # Returns
+- `state_space_mean::Matrix{<:AbstractFloat}`: An N x 3 matrix, where N is the total number of states. The columns are time, mRNA
+    and protein respectively.
 
-- `state_and_distributions::StateAndDistributions`: TODO
+- `state_space_variance::Matrix{<:AbstractFloat}`: An 2N x 2N matrix where N is the total number of states. It is constructed as a 2 x 2 block
+    matrix, where the blocks give the covariance of (mRNA, mRNA), (mRNA, protein), (protein, mRNA), and (protein, protein) for all times (t,s) where
+    abs(t -s) <= τ, the transcriptional time delay.
+
+- `predicted_observation_distributions::Array{Normal{Float64}}`: An array of length n, whose entries are Normal distributions with mean and variance
+    equal to the state space mean and variance predictions for the corresponding time point.
 """
 function kalman_filter_state_space_initialisation(
     protein_at_observations::Matrix{<:AbstractFloat},
@@ -369,19 +409,30 @@ approximated using a forward Euler scheme.
 
 # Arguments
 
-- `state_space::StateSpace`: TODO
+- `state_space_mean::Matrix{<:AbstractFloat}`: An N x 3 matrix, where N is the total number of states. The columns are time, mRNA
+    and protein respectively.
 
-- `states::TimeConstructor`: TODO
+- `state_space_variance::Matrix{<:AbstractFloat}`: An 2N x 2N matrix where N is the total number of states. It is constructed as a 2 x 2 block
+    matrix, where the blocks give the covariance of (mRNA, mRNA), (mRNA, protein), (protein, mRNA), and (protein, protein) for all times (t,s) where
+    abs(t -s) <= τ, the transcriptional time delay.
 
-- `current_observation::Vector{<:AbstractFloat}`: TODO
+- `states::TimeConstructor`: A TimeConstructor whose fields define various values relevant to number of states, e.g. discrete_delay,
+    total_number_of_states, etc.
+
+- `current_observation::Vector{<:AbstractFloat}`: The current time point and protein observation which acts as the initial condition for the
+    prediction.
 
 - `model_parameters::ModelParameters`: A ModelParameters object containing the model parameters in the following order:
     repression threshold, hill coefficient, mRNA degradation rate,protein degradation rate, basal transcription rate,
     translation rate, time delay.
 
 # Returns
+- `state_space_mean::Matrix{<:AbstractFloat}`: An N x 3 matrix, where N is the total number of states. The columns are time, mRNA
+    and protein respectively. With each prediction new values are saved to the relevant entries in the matrix.
 
-- `state_space::StateSpace`: TODO
+- `state_space_variance::Matrix{<:AbstractFloat}`: An 2N x 2N matrix where N is the total number of states. It is constructed as a 2 x 2 block
+    matrix, where the blocks give the covariance of (mRNA, mRNA), (mRNA, protein), (protein, mRNA), and (protein, protein) for all times (t,s) where
+    abs(t -s) <= τ, the transcriptional time delay. With each prediction new values are saved to the relevant entries in the matrix.
 """
 function kalman_prediction_step!(
     state_space_mean,
@@ -774,19 +825,33 @@ This assumes that the observations are collected at fixed time intervals.
 
 # Arguments
 
-- `state_space::StateSpace`: TODO
+- `state_space_mean::Matrix{<:AbstractFloat}`: An N x 3 matrix, where N is the total number of states. The columns are time, mRNA
+    and protein respectively.
 
-- `states::TimeConstructor`: TODO
+- `state_space_variance::Matrix{<:AbstractFloat}`: An 2N x 2N matrix where N is the total number of states. It is constructed as a 2 x 2 block
+    matrix, where the blocks give the covariance of (mRNA, mRNA), (mRNA, protein), (protein, mRNA), and (protein, protein) for all times (t,s) where
+    abs(t -s) <= τ, the transcriptional time delay.
 
-- `current_observation::AbstractArray{<:Real}`: TODO
+- `states::TimeConstructor`: A TimeConstructor whose fields define various values relevant to number of states, e.g. discrete_delay,
+    total_number_of_states, etc.
 
-- `τ::Real`: TODO
+- `current_observation::Vector{<:AbstractFloat}`: The current time point and protein observation which acts as the initial condition for the
+    prediction.
 
-- `measurement_variance::Real`: TODO
+- `τ::Real`: The time delay parameter, model_parameters[7].
+
+- `measurement_variance::Real`: The variance which defines the measurement error, it is ``Σ_ϵ`` in the equation ``y = Fx + Σ_ϵ``.
 
 # Returns
 
-- `state_space::StateSpace`: TODO
+- `state_space_mean::Matrix{<:AbstractFloat}`: An N x 3 matrix, where N is the total number of states. The columns are time, mRNA
+    and protein respectively. At each update step the relevant entries in the matrix are updated according to the update defined in
+    Calderazzo et al., Bioinformatics (2018).
+
+- `state_space_variance::Matrix{<:AbstractFloat}`: An 2N x 2N matrix where N is the total number of states. It is constructed as a 2 x 2 block
+    matrix, where the blocks give the covariance of (mRNA, mRNA), (mRNA, protein), (protein, mRNA), and (protein, protein) for all times (t,s) where
+    abs(t -s) <= τ, the transcriptional time delay. At each update step the relevant entries in the matrix are updated according to the update defined in
+    Calderazzo et al., Bioinformatics (2018).
 
 """
 function kalman_update_step!(
