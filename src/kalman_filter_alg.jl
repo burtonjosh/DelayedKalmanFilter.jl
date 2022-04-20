@@ -461,24 +461,8 @@ function kalman_prediction_step!(
         model_parameters,
         states
         )
-    #
-    # predict_state_space_variance!(
-    #     state_space_mean,
-    #     state_space_variance,
-    #     current_number_of_states,
-    #     model_parameters,
-    #     states,
-    #     instant_jacobian
-    #     )
 
-
-    ##### NEW APPROACH #####
-    #
-    # initial approach for the variance prediction is to do a single diagonal step,
-    # from P(t,t) to P(t+Δt,t+Δt), followed by τ single steps for the off diagonal,
-    # from P(t,s) to P(t+Δt,s). This is restrictive because in order to make the
-    # time delay continuous we would have to interpolate in both the x (columns)
-    # and y (rows) direction. Instead, we can do the following:
+    ##### Variance approach #####
     #
     # integrate P(t,s) to P(t+nΔt,s) for s = t-τ:t, where nΔt is the number of hidden
     # states (maybe more complicated e.g if τ > or < nΔt). Then integrate P(t,t) to
