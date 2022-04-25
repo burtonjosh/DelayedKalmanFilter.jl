@@ -34,4 +34,25 @@ using Test
         measurement_variance,
     )
     @test ll ≈ readdlm(string(loading_path, "log_likelihood_value.csv"), ',')[1]
+
+    # test time delays which are less than the obervation time step
+    small_delay_1 =
+        [10000.0,5.0,log(2)/30,log(2)/90,1.0,1.0,2.0]
+
+    small_delay_2 =
+        [10000.0,5.0,log(2)/30,log(2)/90,1.0,1.0,7.0]
+
+    ll = calculate_log_likelihood_at_parameter_point(
+        protein_at_observations,
+        small_delay_1,
+        measurement_variance,
+    )
+    @test ll ≈ readdlm(string(loading_path, "log_likelihood_value.csv"), ',')[2]
+
+    ll = calculate_log_likelihood_at_parameter_point(
+        protein_at_observations,
+        small_delay_2,
+        measurement_variance,
+    )
+    @test ll ≈ readdlm(string(loading_path, "log_likelihood_value.csv"), ',')[3]
 end
