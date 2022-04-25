@@ -376,14 +376,18 @@ function predict_state_space_mean!(
         du[2] = p[6]*u[1] - p[4]*u[2]
     end
 
-    tspan = (current_number_of_states,current_number_of_states+states.number_of_hidden_states)
-    mean_prob = ODEProblem(state_space_mean_RHS,
-                           current_mean,#state_space_mean[current_number_of_states,[2,3]],
-                           # mean_history,
-                           tspan,
-                           model_parameters)#; constant_lags=[transcription_delay])
-    mean_solution = solve(mean_prob,Euler(),dt=1.,adaptive=false,saveat=1.,mindt=1.,maxdt=1.)
-    state_space_mean[(current_number_of_states + 1):(current_number_of_states + states.number_of_hidden_states),2:3] = hcat(mean_solution.(tspan[1]+1:tspan[2])...)'#mean_solution.(tspan[1]+1:tspan[2])
+    initial_condition_times = Int.([current_number_of_states + states.discrete_delay*x for x in 0:ceil(states.number_of_hidden_states/states.discrete_delay)-1])
+    for initial_condition_state in initial_condition_times
+
+        tspan = (initial_condition_state,min(initial_condition_state + states.discrete_delay,current_number_of_states+states.number_of_hidden_states))
+        mean_prob = ODEProblem(state_space_mean_RHS,
+                            state_space_mean[initial_condition_state,[2,3]],#current_mean
+                            # mean_history,
+                            tspan,
+                            model_parameters)#; constant_lags=[transcription_delay])
+        mean_solution = solve(mean_prob,Euler(),dt=1.,adaptive=false,saveat=1.,mindt=1.,maxdt=1.)
+        state_space_mean[(tspan[1] + 1):tspan[2],2:3] = hcat(mean_solution.(tspan[1]+1:tspan[2])...)'#mean_solution.(tspan[1]+1:tspan[2])
+    end
 end
 
 """
@@ -511,146 +515,164 @@ function kalman_prediction_step!(
 
     end # function
 
-    initial_covariance = state_space_variance[[current_number_of_states,
-                                               states.total_number_of_states+current_number_of_states],
-                                              [current_number_of_states,
-                                               states.total_number_of_states+current_number_of_states]]
+    # in the case of τ < observation_time_step, we have to do the below procedure multiple times (ceil(observation/τ) times)
+    # since otherwise certain P(t-τ,s) values will not exist #TODO bad explanation
+    initial_condition_times = Int.([current_number_of_states + states.discrete_delay*x for x in 0:ceil(states.number_of_hidden_states/states.discrete_delay)-1])
+    for initial_condition_state in initial_condition_times
 
-    if current_number_of_states == states.discrete_delay + 1
-        # start with P(0,0) to P(nΔt,0)
-        diag_tspan = (Float64(current_number_of_states),Float64(current_number_of_states+states.number_of_hidden_states))
-        off_diag_prob = ODEProblem(off_diagonal_state_space_variance_RHS,
-                                   initial_covariance,# P(t,s)
-                                   diag_tspan,
-                                   current_number_of_states)#model_parameters)
-        off_diag_solution = solve(off_diag_prob,Euler(),dt=1.,adaptive=false,saveat=1.,mindt=1.,maxdt=1.)
-        # Fill in the big matrix
-        for index in current_number_of_states+1:current_number_of_states+states.number_of_hidden_states
-            state_space_variance[[current_number_of_states,
-                                  states.total_number_of_states+current_number_of_states],
-                                 [index,
-                                  states.total_number_of_states+index]] = off_diag_solution(index)
-            state_space_variance[[index,
-                                  states.total_number_of_states+index],
-                                 [current_number_of_states,
-                                  states.total_number_of_states+current_number_of_states]] = off_diag_solution(index)'
-        end # fill in matrix for
+        initial_covariance = state_space_variance[[initial_condition_state,
+                                                   states.total_number_of_states+initial_condition_state],
+                                                  [initial_condition_state,
+                                                   states.total_number_of_states+initial_condition_state]]
 
-        # now make the diagonal step, P(0,0) to P(nΔt,nΔt)
-        tspan = (Float64(current_number_of_states),Float64(current_number_of_states + states.number_of_hidden_states))
-        variance_prob = ODEProblem(state_space_variance_RHS,
-                                   initial_covariance,
-                                   tspan,
-                                   model_parameters)
-        diagonal_variance_solution = solve(variance_prob,Euler(),dt=1.,adaptive=false,saveat=1.,mindt=1.,maxdt=1.)
-        for index in current_number_of_states+1:current_number_of_states+states.number_of_hidden_states
-            state_space_variance[[index,
-                                  states.total_number_of_states+index],
-                                 [index,
-                                  states.total_number_of_states+index]] = diagonal_variance_solution(index)
-        end
+        if current_number_of_states == states.discrete_delay + 1
+            # start with P(0,0) to P(nΔt,0)
+            diag_tspan = (Float64(initial_condition_state),Float64(min(initial_condition_state+states.discrete_delay,current_number_of_states + states.number_of_hidden_states)))
 
-        # second batch of off diagonals
-        for intermediate_time_index in current_number_of_states+1:current_number_of_states+states.number_of_hidden_states-1 # each of the diagonals (except last)
-            covariance_matrix_intermediate = state_space_variance[[intermediate_time_index,
-                                                                   states.total_number_of_states+intermediate_time_index],
-                                                                  [intermediate_time_index,
-                                                                   states.total_number_of_states+intermediate_time_index]]
+            for intermediate_time_index in max(initial_condition_state - states.discrete_delay, states.discrete_delay+1):initial_condition_state
+                covariance_matrix_intermediate_to_current = state_space_variance[[intermediate_time_index,
+                                                                                  states.total_number_of_states+intermediate_time_index],
+                                                                                 [initial_condition_state,
+                                                                                  states.total_number_of_states+initial_condition_state]]
 
-            diag_tspan = (Float64(intermediate_time_index),Float64(current_number_of_states+states.number_of_hidden_states)) # predict to next time point
-            off_diag_prob = ODEProblem(off_diagonal_state_space_variance_RHS,
-                                       covariance_matrix_intermediate,# P(s,s)
-                                       diag_tspan,
-                                       intermediate_time_index)#model_parameters)
-            off_diag_solution = solve(off_diag_prob,Euler(),dt=1.,adaptive=false,saveat=1.,mindt=1.,maxdt=1.)
 
-            # Fill in the big matrix
-            for index in intermediate_time_index+1:current_number_of_states+states.number_of_hidden_states
-                state_space_variance[[intermediate_time_index,
-                                      states.total_number_of_states+intermediate_time_index],
-                                     [index,
-                                      states.total_number_of_states+index]] = off_diag_solution(index)
+                off_diag_prob = ODEProblem(off_diagonal_state_space_variance_RHS,
+                                           covariance_matrix_intermediate_to_current,# P(t,s)
+                                           diag_tspan,
+                                           initial_condition_state)#model_parameters)
+
+                off_diag_solution = solve(off_diag_prob,Euler(),dt=1.,adaptive=false,saveat=1.,mindt=1.,maxdt=1.)
+                # Fill in the big matrix
+                for index in initial_condition_state+1:min(initial_condition_state+states.discrete_delay,current_number_of_states + states.number_of_hidden_states)
+                    if index - intermediate_time_index <= states.discrete_delay # this is hacky -- fix above to do less computations
+                        state_space_variance[[intermediate_time_index,
+                                            states.total_number_of_states+intermediate_time_index],
+                                            [index,
+                                            states.total_number_of_states+index]] = off_diag_solution(index)
+                        state_space_variance[[index,
+                                            states.total_number_of_states+index],
+                                            [intermediate_time_index,
+                                            states.total_number_of_states+intermediate_time_index]] = off_diag_solution(index)'
+                    end
+                end # fill in matrix for
+            end
+
+            # now make the diagonal step, P(0,0) to P(nΔt,nΔt)
+            tspan = (Float64(initial_condition_state),Float64(min(initial_condition_state+states.discrete_delay,current_number_of_states + states.number_of_hidden_states)))
+            variance_prob = ODEProblem(state_space_variance_RHS,
+                                       initial_covariance,
+                                       tspan,
+                                       model_parameters)
+            diagonal_variance_solution = solve(variance_prob,Euler(),dt=1.,adaptive=false,saveat=1.,mindt=1.,maxdt=1.)
+            for index in initial_condition_state+1:min(initial_condition_state+states.discrete_delay,current_number_of_states + states.number_of_hidden_states)
                 state_space_variance[[index,
                                       states.total_number_of_states+index],
-                                     [intermediate_time_index,
-                                      states.total_number_of_states+intermediate_time_index]] = off_diag_solution(index)'
-            end # fill in matrix for
-        end # intermediate time index for
-
-    # all predictions after the first set
-    else
-        # solve first batch of off diagonals
-        # we want to do P(s,t) -> P(s,t+nΔt) for s = t-τ:t
-        for intermediate_time_index in max(current_number_of_states - states.discrete_delay, states.discrete_delay+1):current_number_of_states
-            covariance_matrix_intermediate_to_current = state_space_variance[[intermediate_time_index,
-                                                                              states.total_number_of_states+intermediate_time_index],
-                                                                             [current_number_of_states,
-                                                                              states.total_number_of_states+current_number_of_states]]
-
-            # difference = 0#current_number_of_states - ()
-            diag_tspan = (Float64(current_number_of_states), Float64(current_number_of_states + states.number_of_hidden_states))
-            off_diag_prob = ODEProblem(off_diagonal_state_space_variance_RHS,
-                                       covariance_matrix_intermediate_to_current,# P(s,t)
-                                       diag_tspan,
-                                       intermediate_time_index)#model_parameters)
-            off_diag_solution = solve(off_diag_prob,Euler(),dt=1.,adaptive=false,saveat=1.,mindt=1.,maxdt=1.)
-
-            # Fill in the big matrix
-            for index in current_number_of_states+1:current_number_of_states+states.number_of_hidden_states
-                if index - intermediate_time_index <= states.discrete_delay # this is hacky -- fix above to do less computations
-                state_space_variance[[intermediate_time_index,
-                                      states.total_number_of_states+intermediate_time_index],
                                      [index,
-                                      states.total_number_of_states+index]] = off_diag_solution(index)
+                                      states.total_number_of_states+index]] = diagonal_variance_solution(index)
+            end
 
+            # second batch of off diagonals
+            for intermediate_time_index in initial_condition_state+1:min(initial_condition_state+states.discrete_delay,current_number_of_states + states.number_of_hidden_states)-1 # each of the diagonals (except last)
+                covariance_matrix_intermediate = state_space_variance[[intermediate_time_index,
+                                                                       states.total_number_of_states+intermediate_time_index],
+                                                                      [intermediate_time_index,
+                                                                       states.total_number_of_states+intermediate_time_index]]
+
+                diag_tspan = (Float64(intermediate_time_index),Float64(min(initial_condition_state+states.discrete_delay,current_number_of_states + states.number_of_hidden_states))) # predict to next time point
+                off_diag_prob = ODEProblem(off_diagonal_state_space_variance_RHS,
+                                           covariance_matrix_intermediate,# P(s,s)
+                                           diag_tspan,
+                                           intermediate_time_index)#model_parameters)
+                off_diag_solution = solve(off_diag_prob,Euler(),dt=1.,adaptive=false,saveat=1.,mindt=1.,maxdt=1.)
+
+                # Fill in the big matrix
+                for index in intermediate_time_index+1:min(initial_condition_state+states.discrete_delay,current_number_of_states + states.number_of_hidden_states)
+                    state_space_variance[[intermediate_time_index,
+                                          states.total_number_of_states+intermediate_time_index],
+                                         [index,
+                                          states.total_number_of_states+index]] = off_diag_solution(index)
+                    state_space_variance[[index,
+                                          states.total_number_of_states+index],
+                                         [intermediate_time_index,
+                                          states.total_number_of_states+intermediate_time_index]] = off_diag_solution(index)'
+                end # fill in matrix for
+            end # intermediate time index for
+
+        # all predictions after the first set
+        else
+            diag_tspan = (Float64(initial_condition_state), Float64(min(initial_condition_state+states.discrete_delay,current_number_of_states + states.number_of_hidden_states)))
+            # solve first batch of off diagonals
+            # we want to do P(s,t) -> P(s,t+nΔt) for s = t-τ:t
+            for intermediate_time_index in max(initial_condition_state - states.discrete_delay, states.discrete_delay+1):initial_condition_state
+                covariance_matrix_intermediate_to_current = state_space_variance[[intermediate_time_index,
+                                                                                  states.total_number_of_states+intermediate_time_index],
+                                                                                 [initial_condition_state,
+                                                                                  states.total_number_of_states+initial_condition_state]]
+
+                # difference = 0#current_number_of_states - ()
+                off_diag_prob = ODEProblem(off_diagonal_state_space_variance_RHS,
+                                           covariance_matrix_intermediate_to_current,# P(s,t)
+                                           diag_tspan,
+                                           intermediate_time_index)#model_parameters)
+                off_diag_solution = solve(off_diag_prob,Euler(),dt=1.,adaptive=false,saveat=1.,mindt=1.,maxdt=1.)
+
+                # Fill in the big matrix
+                for index in initial_condition_state+1:min(initial_condition_state+states.discrete_delay,current_number_of_states + states.number_of_hidden_states)
+                    if index - intermediate_time_index <= states.discrete_delay # this is hacky -- fix above to do less computations
+                    state_space_variance[[intermediate_time_index,
+                                          states.total_number_of_states+intermediate_time_index],
+                                         [index,
+                                          states.total_number_of_states+index]] = off_diag_solution(index)
+
+                    state_space_variance[[index,
+                                          states.total_number_of_states+index],
+                                         [intermediate_time_index,
+                                          states.total_number_of_states+intermediate_time_index]] = off_diag_solution(index)'
+                    end
+                end # fill in matrix for
+            end # intermediate time index for
+
+            # solve state space diagonal variance ODE
+            tspan = (Float64(initial_condition_state),Float64(min(initial_condition_state+states.discrete_delay,current_number_of_states + states.number_of_hidden_states)))
+            diagonal_variance_prob = ODEProblem(state_space_variance_RHS,
+                                                initial_covariance,
+                                                tspan,
+                                                model_parameters)
+            diagonal_variance_solution = solve(diagonal_variance_prob,Euler(),dt=1.,adaptive=false,saveat=1.,mindt=1.,maxdt=1.)
+            for index in initial_condition_state+1:min(initial_condition_state+states.discrete_delay,current_number_of_states + states.number_of_hidden_states)
                 state_space_variance[[index,
                                       states.total_number_of_states+index],
-                                     [intermediate_time_index,
-                                      states.total_number_of_states+intermediate_time_index]] = off_diag_solution(index)'
-                end
-            end # fill in matrix for
-        end # intermediate time index for
-
-        # solve state space diagonal variance ODE
-        tspan = (Float64(current_number_of_states),Float64(current_number_of_states + states.number_of_hidden_states))
-        diagonal_variance_prob = ODEProblem(state_space_variance_RHS,
-                                            initial_covariance,
-                                            tspan,
-                                            model_parameters)
-        diagonal_variance_solution = solve(diagonal_variance_prob,Euler(),dt=1.,adaptive=false,saveat=1.,mindt=1.,maxdt=1.)
-        for index in current_number_of_states+1:current_number_of_states+states.number_of_hidden_states
-            state_space_variance[[index,
-                                  states.total_number_of_states+index],
-                                 [index,
-                                  states.total_number_of_states+index]] = diagonal_variance_solution(index)
-        end
-        # second batch of off diagonals
-        for intermediate_time_index in current_number_of_states+1:current_number_of_states+states.number_of_hidden_states-1
-            covariance_matrix_intermediate = state_space_variance[[intermediate_time_index,
-                                                                   states.total_number_of_states+intermediate_time_index],
-                                                                  [intermediate_time_index,
-                                                                   states.total_number_of_states+intermediate_time_index]]
-
-            diag_tspan = (Float64(intermediate_time_index),Float64(current_number_of_states+states.number_of_hidden_states))
-            off_diag_prob = ODEProblem(off_diagonal_state_space_variance_RHS,
-                                       covariance_matrix_intermediate,# P(s,s)
-                                       diag_tspan,
-                                       intermediate_time_index)#model_parameters)
-            off_diag_solution = solve(off_diag_prob,Euler(),dt=1.,adaptive=false,saveat=1.,mindt=1.,maxdt=1.)
-
-            # Fill in the big matrix
-            for index in intermediate_time_index+1:current_number_of_states+states.number_of_hidden_states
-                state_space_variance[[intermediate_time_index,
-                                      states.total_number_of_states+intermediate_time_index],
                                      [index,
-                                      states.total_number_of_states+index]] = off_diag_solution(index)
-                state_space_variance[[index,
-                                      states.total_number_of_states+index],
-                                     [intermediate_time_index,
-                                      states.total_number_of_states+intermediate_time_index]] = off_diag_solution(index)'
-            end # fill in matrix for
-        end # intermediate time index for
-    end # if-else
+                                      states.total_number_of_states+index]] = diagonal_variance_solution(index)
+            end
+            # second batch of off diagonals
+            for intermediate_time_index in initial_condition_state+1:min(initial_condition_state+states.discrete_delay,current_number_of_states + states.number_of_hidden_states)-1
+                covariance_matrix_intermediate = state_space_variance[[intermediate_time_index,
+                                                                       states.total_number_of_states+intermediate_time_index],
+                                                                      [intermediate_time_index,
+                                                                       states.total_number_of_states+intermediate_time_index]]
+
+                diag_tspan = (Float64(intermediate_time_index),Float64(min(initial_condition_state+states.discrete_delay,current_number_of_states + states.number_of_hidden_states)))
+                off_diag_prob = ODEProblem(off_diagonal_state_space_variance_RHS,
+                                           covariance_matrix_intermediate,# P(s,s)
+                                           diag_tspan,
+                                           intermediate_time_index)#model_parameters)
+                off_diag_solution = solve(off_diag_prob,Euler(),dt=1.,adaptive=false,saveat=1.,mindt=1.,maxdt=1.)
+
+                # Fill in the big matrix
+                for index in intermediate_time_index+1:min(initial_condition_state+states.discrete_delay,current_number_of_states + states.number_of_hidden_states)
+                    state_space_variance[[intermediate_time_index,
+                                          states.total_number_of_states+intermediate_time_index],
+                                         [index,
+                                          states.total_number_of_states+index]] = off_diag_solution(index)
+                    state_space_variance[[index,
+                                          states.total_number_of_states+index],
+                                         [intermediate_time_index,
+                                          states.total_number_of_states+intermediate_time_index]] = off_diag_solution(index)'
+                end # fill in matrix for
+            end # intermediate time index for
+        end # if-else
+    end # initial_condition_times for
     return state_space_mean, state_space_variance
 end # function
 
