@@ -363,7 +363,6 @@ Predict state space mean to the next observation time index
 function predict_state_space_mean!(
     state_space_mean,
     current_number_of_states,
-    current_mean,
     model_parameters,
     states
     )
@@ -377,12 +376,11 @@ function predict_state_space_mean!(
     end
 
     initial_condition_times = Int.([current_number_of_states + states.discrete_delay*x for x in 0:ceil(states.number_of_hidden_states/states.discrete_delay)-1])
-    for initial_condition_state in initial_condition_times
 
+    for initial_condition_state in initial_condition_times
         tspan = (initial_condition_state,min(initial_condition_state + states.discrete_delay,current_number_of_states+states.number_of_hidden_states))
         mean_prob = ODEProblem(state_space_mean_RHS,
                             state_space_mean[initial_condition_state,[2,3]],#current_mean
-                            # mean_history,
                             tspan,
                             model_parameters)#; constant_lags=[transcription_delay])
         mean_solution = solve(mean_prob,Euler(),dt=1.,adaptive=false,saveat=1.,mindt=1.,maxdt=1.)
@@ -402,76 +400,12 @@ function predict_state_space_variance!(
     instant_jacobian
     )
 
-
-end
-
-"""
-Perform the Kalman filter prediction about future observation, based on current knowledge i.e. current
-state space mean and variance. This gives rho_{t+delta t-tau:t+delta t} and P_{t+delta t-tau:t+delta t},
-using the differential equations in supplementary section 4 of Calderazzo et al., Bioinformatics (2018),
-approximated using a forward Euler scheme.
-
-# Arguments
-
-- `state_space_mean::Matrix{<:AbstractFloat}`: An N x 3 matrix, where N is the total number of states. The columns are time, mRNA
-    and protein respectively.
-
-- `state_space_variance::Matrix{<:AbstractFloat}`: An 2N x 2N matrix where N is the total number of states. It is constructed as a 2 x 2 block
-    matrix, where the blocks give the covariance of (mRNA, mRNA), (mRNA, protein), (protein, mRNA), and (protein, protein) for all times (t,s) where
-    abs(t -s) <= τ, the transcriptional time delay.
-
-- `states::TimeConstructor`: A TimeConstructor whose fields define various values relevant to number of states, e.g. discrete_delay,
-    total_number_of_states, etc.
-
-- `current_observation::Vector{<:AbstractFloat}`: The current time point and protein observation which acts as the initial condition for the
-    prediction.
-
-- `model_parameters::ModelParameters`: A ModelParameters object containing the model parameters in the following order:
-    repression threshold, hill coefficient, mRNA degradation rate,protein degradation rate, basal transcription rate,
-    translation rate, time delay.
-
-# Returns
-- `state_space_mean::Matrix{<:AbstractFloat}`: An N x 3 matrix, where N is the total number of states. The columns are time, mRNA
-    and protein respectively. With each prediction new values are saved to the relevant entries in the matrix.
-
-- `state_space_variance::Matrix{<:AbstractFloat}`: An 2N x 2N matrix where N is the total number of states. It is constructed as a 2 x 2 block
-    matrix, where the blocks give the covariance of (mRNA, mRNA), (mRNA, protein), (protein, mRNA), and (protein, protein) for all times (t,s) where
-    abs(t -s) <= τ, the transcriptional time delay. With each prediction new values are saved to the relevant entries in the matrix.
-"""
-function kalman_prediction_step!(
-    state_space_mean,
-    state_space_variance,
-    states::TimeConstructor,
-    current_observation::Vector{<:AbstractFloat},
-    model_parameters::Vector{<:AbstractFloat},
-)
-
-    τ = model_parameters[7]
-
-    # @unpack P₀, h, μₘ, μₚ, αₘ, αₚ, τ = model_parameters
-    # this is the number of states at t, i.e. before predicting towards t+observation_time_step
-    current_number_of_states = calculate_current_number_of_states(
-        current_observation[1] - states.number_of_hidden_states,
-        states,
-        τ,
-    )
-
-    instant_jacobian = construct_instant_jacobian(model_parameters)
-
-    predict_state_space_mean!(
-        state_space_mean,
-        current_number_of_states,
-        state_space_mean[current_number_of_states, 2:3],
-        model_parameters,
-        states
-        )
-
-    ##### Variance approach #####
-    #
-    # integrate P(t,s) to P(t+nΔt,s) for s = t-τ:t, where nΔt is the number of hidden
-    # states (maybe more complicated e.g if τ > or < nΔt). Then integrate P(t,t) to
-    # P(t+nΔt,t+nΔt).
-    # very first prediction only want to predict from P(0,0)
+    # There are three separate steps in the variance prediction:
+    # (1) integrate P(t,s) to P(t+nΔt,s) for s = t-τ:t, where nΔt is the number of hidden
+    # states. (horizontal/vertical)
+    # (2) Integrate P(t,t) to P(t+nΔt,t+nΔt). (diagonal)
+    # (3) Integrate P(t,t) to P(t,t+nΔt) for t in t:t+nΔt-1. (horizontal/vertical)
+    
     function state_space_variance_RHS(du,u,p,t)
         # past_protein = h(p,t-p[7])
         past_index = Int(t) - states.discrete_delay
@@ -491,15 +425,14 @@ function kalman_prediction_step!(
              variance_of_noise
     end # function
 
-    function off_diagonal_state_space_variance_RHS(du,u,p,diag_t)
+    function off_diagonal_state_space_variance_RHS(du,u,p,diag_t) # p is the intermediate time index s
         past_index = Int(diag_t) - states.discrete_delay # t - τ
         if past_index < 1
-            past_protein = 0.0#state_space_mean[past_time_index,3]
+            past_protein = 0.0
         else
             past_protein = state_space_mean[past_index,3]
         end
 
-        current_mean = state_space_mean[Int(diag_t),2:3]
         delayed_jacobian = construct_delayed_jacobian(model_parameters, past_protein)
 
         if diag_t < 1 || past_index < 1
@@ -597,6 +530,76 @@ function kalman_prediction_step!(
             end # fill in matrix for
         end # intermediate time index for
     end # initial_condition_times for
+end
+
+"""
+Perform the Kalman filter prediction about future observation, based on current knowledge i.e. current
+state space mean and variance. This gives rho_{t+delta t-tau:t+delta t} and P_{t+delta t-tau:t+delta t},
+using the differential equations in supplementary section 4 of Calderazzo et al., Bioinformatics (2018),
+approximated using a forward Euler scheme.
+
+# Arguments
+
+- `state_space_mean::Matrix{<:AbstractFloat}`: An N x 3 matrix, where N is the total number of states. The columns are time, mRNA
+    and protein respectively.
+
+- `state_space_variance::Matrix{<:AbstractFloat}`: An 2N x 2N matrix where N is the total number of states. It is constructed as a 2 x 2 block
+    matrix, where the blocks give the covariance of (mRNA, mRNA), (mRNA, protein), (protein, mRNA), and (protein, protein) for all times (t,s) where
+    abs(t -s) <= τ, the transcriptional time delay.
+
+- `states::TimeConstructor`: A TimeConstructor whose fields define various values relevant to number of states, e.g. discrete_delay,
+    total_number_of_states, etc.
+
+- `current_observation::Vector{<:AbstractFloat}`: The current time point and protein observation which acts as the initial condition for the
+    prediction.
+
+- `model_parameters::ModelParameters`: A ModelParameters object containing the model parameters in the following order:
+    repression threshold, hill coefficient, mRNA degradation rate,protein degradation rate, basal transcription rate,
+    translation rate, time delay.
+
+# Returns
+- `state_space_mean::Matrix{<:AbstractFloat}`: An N x 3 matrix, where N is the total number of states. The columns are time, mRNA
+    and protein respectively. With each prediction new values are saved to the relevant entries in the matrix.
+
+- `state_space_variance::Matrix{<:AbstractFloat}`: An 2N x 2N matrix where N is the total number of states. It is constructed as a 2 x 2 block
+    matrix, where the blocks give the covariance of (mRNA, mRNA), (mRNA, protein), (protein, mRNA), and (protein, protein) for all times (t,s) where
+    abs(t -s) <= τ, the transcriptional time delay. With each prediction new values are saved to the relevant entries in the matrix.
+"""
+function kalman_prediction_step!(
+    state_space_mean,
+    state_space_variance,
+    states::TimeConstructor,
+    current_observation::Vector{<:AbstractFloat},
+    model_parameters::Vector{<:AbstractFloat},
+)
+
+    τ = model_parameters[7]
+
+    # @unpack P₀, h, μₘ, μₚ, αₘ, αₚ, τ = model_parameters
+    # this is the number of states at t, i.e. before predicting towards t+observation_time_step
+    current_number_of_states = calculate_current_number_of_states(
+        current_observation[1] - states.number_of_hidden_states,
+        states,
+        τ,
+    )
+
+    instant_jacobian = construct_instant_jacobian(model_parameters)
+
+    predict_state_space_mean!(
+        state_space_mean,
+        current_number_of_states,
+        model_parameters,
+        states
+        )
+
+    predict_state_space_variance!(
+        state_space_mean,
+        state_space_variance,
+        current_number_of_states,
+        model_parameters,
+        states,
+        instant_jacobian
+        )
     return state_space_mean, state_space_variance
 end # function
 
