@@ -22,7 +22,7 @@ function time_constructor_function(
     observation_time_step =
         Int(protein_at_observations[2, 1] - protein_at_observations[1, 1])
 
-    discrete_delay = Int64(round(τ / discretisation_time_step))
+    discrete_delay = ceil(Int,τ / discretisation_time_step)
     initial_number_of_states = discrete_delay + 1
     number_of_hidden_states = Int64(round(observation_time_step / discretisation_time_step))
 
@@ -41,11 +41,27 @@ function time_constructor_function(
 end
 
 """
+Helper function to return the state space mean for a given (real valued) time between t-τ and t+Δobs,
+where t is the current number of states.
+"""
+function continuous_state_space_mean_indexer(
+    continuous_state_space_mean,
+    index,
+    current_number_of_states,
+    states
+)
+    array_index = length(continuous_state_space_mean) + min(0,floor(Int,(index-current_number_of_states)/states.observation_time_step))
+    return continuous_state_space_mean[array_index](index)
+end
+
+
+"""
 Calculate the mean and variance of the Normal approximation of the state space for a given
 time point in the Kalman filtering algorithm and return it as a Normal distribution
 """
 function distribution_prediction_at_given_time(
     state_space_mean,
+    continuous_state_space_mean,
     state_space_variance,
     states::TimeConstructor,
     given_time::Integer,
@@ -54,6 +70,17 @@ function distribution_prediction_at_given_time(
 )
 
     mean_prediction = dot(observation_transform, state_space_mean[given_time, 2:3])
+    continuous_mean_prediction = dot(observation_transform,
+        continuous_state_space_mean_indexer(
+            continuous_state_space_mean,
+            given_time,
+            given_time,
+            states)
+    )
+    
+    println("old mean prediction: ",mean_prediction)
+    println("new mean prediction: ",continuous_mean_prediction)
+
     last_predicted_covariance_matrix = state_space_variance[
         [given_time, states.total_number_of_states + given_time],
         [given_time, states.total_number_of_states + given_time],
@@ -70,6 +97,7 @@ end
 # if no time given, use initial number of states
 function distribution_prediction_at_given_time(
     state_space_mean,
+    continuous_state_space_mean,
     state_space_variance,
     states::TimeConstructor,
     observation_transform::Matrix{<:AbstractFloat},
@@ -78,6 +106,14 @@ function distribution_prediction_at_given_time(
 
     mean_prediction =
         dot(observation_transform, state_space_mean[states.initial_number_of_states, 2:3])
+    continuous_mean_prediction = dot(observation_transform,
+        continuous_state_space_mean_indexer(continuous_state_space_mean,states.initial_number_of_states,states.initial_number_of_states,states)
+    )
+    println(continuous_state_space_mean_indexer(continuous_state_space_mean,states.initial_number_of_states,states.initial_number_of_states,states))
+
+    println("old mean prediction: ",mean_prediction)
+    println("new mean prediction: ",continuous_mean_prediction)
+
     last_predicted_covariance_matrix = state_space_variance[
         [
             states.initial_number_of_states,
@@ -167,7 +203,7 @@ function kalman_filter(
     observation_transform = [0.0 1.0]
     states = time_constructor_function(protein_at_observations, τ)
     # initialise state space and distribution predictions
-    state_space_mean, state_space_variance, predicted_observation_distributions =
+    state_space_mean, continuous_state_space_mean, state_space_variance, predicted_observation_distributions =
     kalman_filter_state_space_initialisation(
         protein_at_observations,
         model_parameters,
@@ -195,6 +231,7 @@ function kalman_filter(
         predicted_observation_distributions[observation_index] =
             distribution_prediction_at_given_time(
                 state_space_mean,
+                continuous_state_space_mean,
                 state_space_variance,
                 states,
                 current_number_of_states,
@@ -306,14 +343,19 @@ function kalman_filter_state_space_initialisation(
 
     # construct state space
     state_space_mean = initialise_state_space_mean(states, steady_state)
+    
+    function initial_continuous_mean_function(t)
+        t >= 0.0 ? steady_state : [0.0, 0.0]
+    end
+    continuous_state_space_mean = fill(initial_continuous_mean_function,ceil(Int,τ/states.observation_time_step) + 1)
     state_space_variance = initialise_state_space_variance(states, steady_state)
-    # state_space = StateSpace{Float64}(state_space_mean, state_space_variance)
 
     # initialise distributions
     predicted_observation_distributions =
         fill(Normal(),states.number_of_observations)#Array{Normal{Float64}}(undef, states.number_of_observations)
     predicted_observation_distributions[1] = distribution_prediction_at_given_time(
         state_space_mean,
+        continuous_state_space_mean,
         state_space_variance,
         states,
         observation_transform,
@@ -331,7 +373,7 @@ function kalman_filter_state_space_initialisation(
         observation_transform,
     )
 
-    return state_space_mean, state_space_variance, predicted_observation_distributions
+    return state_space_mean, continuous_state_space_mean, state_space_variance, predicted_observation_distributions
 end # function
 
 function construct_instant_jacobian(model_parameters)
