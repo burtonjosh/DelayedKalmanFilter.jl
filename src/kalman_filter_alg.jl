@@ -79,50 +79,12 @@ function distribution_prediction_at_given_time(
     )
     
     println("old mean prediction: ",mean_prediction)
+    println("new mean prediction test: ",continuous_state_space_mean[end](given_time))
     println("new mean prediction: ",continuous_mean_prediction)
 
     last_predicted_covariance_matrix = state_space_variance[
         [given_time, states.total_number_of_states + given_time],
         [given_time, states.total_number_of_states + given_time],
-    ]
-    variance_prediction =
-        dot(
-            observation_transform,
-            last_predicted_covariance_matrix * observation_transform',
-        ) + measurement_variance
-
-    return Normal(mean_prediction, sqrt(variance_prediction))
-end
-
-# if no time given, use initial number of states
-function distribution_prediction_at_given_time(
-    state_space_mean,
-    continuous_state_space_mean,
-    state_space_variance,
-    states::TimeConstructor,
-    observation_transform::Matrix{<:AbstractFloat},
-    measurement_variance::AbstractFloat,
-)
-
-    mean_prediction =
-        dot(observation_transform, state_space_mean[states.initial_number_of_states, 2:3])
-    continuous_mean_prediction = dot(observation_transform,
-        continuous_state_space_mean_indexer(continuous_state_space_mean,states.initial_number_of_states,states.initial_number_of_states,states)
-    )
-    println(continuous_state_space_mean_indexer(continuous_state_space_mean,states.initial_number_of_states,states.initial_number_of_states,states))
-
-    println("old mean prediction: ",mean_prediction)
-    println("new mean prediction: ",continuous_mean_prediction)
-
-    last_predicted_covariance_matrix = state_space_variance[
-        [
-            states.initial_number_of_states,
-            states.total_number_of_states + states.initial_number_of_states,
-        ],
-        [
-            states.initial_number_of_states,
-            states.total_number_of_states + states.initial_number_of_states,
-        ],
     ]
     variance_prediction =
         dot(
@@ -217,6 +179,7 @@ function kalman_filter(
         current_observation = protein_at_observations[observation_index, :]
         kalman_prediction_step!(
             state_space_mean,
+            continuous_state_space_mean,
             state_space_variance,
             states,
             current_observation,
@@ -240,6 +203,7 @@ function kalman_filter(
             )
         kalman_update_step!(
             state_space_mean,
+            continuous_state_space_mean,
             state_space_variance,
             states,
             current_observation,
@@ -248,7 +212,7 @@ function kalman_filter(
             observation_transform,
         )
     end # for
-    return state_space_mean, state_space_variance, predicted_observation_distributions
+    return state_space_mean, continuous_state_space_mean, state_space_variance, predicted_observation_distributions
 end # function
 
 """
@@ -358,6 +322,7 @@ function kalman_filter_state_space_initialisation(
         continuous_state_space_mean,
         state_space_variance,
         states,
+        states.initial_number_of_states,
         observation_transform,
         measurement_variance,
     )
@@ -365,6 +330,7 @@ function kalman_filter_state_space_initialisation(
     current_observation = protein_at_observations[1, :]
     kalman_update_step!(
         state_space_mean,
+        continuous_state_space_mean,
         state_space_variance,
         states,
         current_observation,
@@ -404,6 +370,7 @@ Predict state space mean to the next observation time index
 """
 function predict_state_space_mean!(
     state_space_mean,
+    continuous_state_space_mean,
     current_number_of_states,
     model_parameters,
     states
@@ -428,6 +395,29 @@ function predict_state_space_mean!(
         mean_solution = solve(mean_prob,Euler(),dt=1.,adaptive=false,saveat=1.,mindt=1.,maxdt=1.)
         state_space_mean[(tspan[1] + 1):tspan[2],2:3] = hcat(mean_solution.(tspan[1]+1:tspan[2])...)'#mean_solution.(tspan[1]+1:tspan[2])
     end
+
+    ## continuous_state_space_mean prediction
+    function continuous_state_space_mean_RHS(du,u,p,t) # is there some way for this function to not be nested? does it matter?
+        # past_protein = h(p,t-p[7]) # TODO define history function
+        past_index = t - p[7]
+        past_protein = continuous_state_space_mean_indexer(continuous_state_space_mean, past_index,current_number_of_states,states)[2] # state_space_mean[past_index,3] # currently indexing array rather than using history function
+            
+        du[1] = -p[3]*u[1] + p[5]*hill_function(past_protein, p[1], p[2])
+        du[2] = p[6]*u[1] - p[4]*u[2]
+    end
+
+    for initial_condition_state in initial_condition_times
+        tspan = (initial_condition_state,min(initial_condition_state + states.discrete_delay,current_number_of_states+states.number_of_hidden_states))
+        continuous_mean_prob = ODEProblem(continuous_state_space_mean_RHS,
+                            continuous_state_space_mean_indexer(continuous_state_space_mean,initial_condition_state,current_number_of_states,states),#current_mean
+                            tspan,
+                            model_parameters)#; constant_lags=[transcription_delay])
+        continuous_mean_solution = solve(continuous_mean_prob,Euler(),dt=1.,adaptive=false,saveat=1.,mindt=1.,maxdt=1.)
+        continuous_state_space_mean = [continuous_state_space_mean[2:end]...,continuous_mean_solution]
+    end
+
+    return state_space_mean, continuous_state_space_mean
+
 end
 
 function predict_variance_first_step!(
@@ -655,6 +645,7 @@ approximated using a forward Euler scheme.
 """
 function kalman_prediction_step!(
     state_space_mean,
+    continuous_state_space_mean,
     state_space_variance,
     states::TimeConstructor,
     current_observation::Vector{<:AbstractFloat},
@@ -675,6 +666,7 @@ function kalman_prediction_step!(
 
     predict_state_space_mean!(
         state_space_mean,
+        continuous_state_space_mean,
         current_number_of_states,
         model_parameters,
         states
@@ -688,7 +680,7 @@ function kalman_prediction_step!(
         states,
         instant_jacobian
         )
-    return state_space_mean, state_space_variance
+    return state_space_mean, continuous_state_space_mean, state_space_variance
 end # function
 
 """
@@ -723,6 +715,7 @@ end
 
 function update_mean!(
     state_space_mean,
+    continuous_state_space_mean,
     current_number_of_states,
     states,
     adaptation_coefficient,
@@ -755,7 +748,9 @@ function update_mean!(
         states,
     )
 
-    return state_space_mean
+    ## TODO implement continuous mean update step
+
+    return state_space_mean, continuous_state_space_mean
 end
 
 function calculate_helper_inverse(
@@ -877,6 +872,7 @@ This assumes that the observations are collected at fixed time intervals.
 """
 function kalman_update_step!(
     state_space_mean,
+    continuous_state_space_mean,
     state_space_variance,
     states::TimeConstructor,
     current_observation::Vector{<:AbstractFloat},
@@ -920,6 +916,7 @@ function kalman_update_step!(
     # this is ρ*
     update_mean!(
         state_space_mean,
+        continuous_state_space_mean,
         current_number_of_states,
         states,
         adaptation_coefficient,
@@ -935,5 +932,5 @@ function kalman_update_step!(
         adaptation_coefficient,
         observation_transform,
     )
-    return state_space_mean, state_space_variance
+    return state_space_mean, continuous_state_space_mean, state_space_variance
 end # function
