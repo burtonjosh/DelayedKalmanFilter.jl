@@ -342,7 +342,7 @@ function predict_state_space_mean!(
                            # mean_history,
                            tspan,
                            model_parameters)#; constant_lags=[transcription_delay])
-    mean_solution = solve(mean_prob,Euler(),dt=1.,adaptive=false,saveat=1.,mindt=1.,maxdt=1.)
+    mean_solution = solve(mean_prob,Euler(),dt=1.,adaptive=false,saveat=1.,dtmin=1.,dtmax=1.)
     # mean_solution_dict[prediction_index] = mean_solution
     state_space_mean[(current_number_of_states + 1):(current_number_of_states + states.number_of_hidden_states),2:3] = hcat(mean_solution.(tspan[1]+1:tspan[2])...)'#mean_solution.(tspan[1]+1:tspan[2])
     # state_space_mean[(current_number_of_states + 1):(current_number_of_states + states.number_of_hidden_states),2] = [mean_solution(i)[1] for i in tspan[1]+1:tspan[2]]
@@ -407,7 +407,7 @@ function predict_state_space_variance!(
                                            # mean_history,
                                            diag_tspan,
                                            model_parameters)#; constant_lags=[transcription_delay])
-                off_diag_solution = solve(off_diag_prob,Euler(),dt=1.,adaptive=false,saveat=1.,mindt=1.,maxdt=1.)
+                off_diag_solution = solve(off_diag_prob,Euler(),dt=1.,adaptive=false,saveat=1.,dtmin=1.,dtmax=1.)
 
                 # Fill in the big matrix
                 state_space_variance[[intermediate_time_index,
@@ -428,7 +428,7 @@ function predict_state_space_variance!(
                                current_variance,
                                tspan,
                                model_parameters)
-    solve(variance_prob,Euler(),dt=1.,adaptive=false,saveat=1.,mindt=1.,maxdt=1.)
+    solve(variance_prob,Euler(),dt=1.,adaptive=false,saveat=1.,dtmin=1.,dtmax=1.)
 end
 
 """
