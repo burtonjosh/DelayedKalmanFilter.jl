@@ -51,8 +51,9 @@ function continuous_state_space_mean_indexer(
     states
 )
     array_index = length(continuous_state_space_mean) + min(0,floor(Int,(time-current_number_of_states)/states.observation_time_step))
-    println(array_index)
-    println(continuous_state_space_mean[array_index])
+    println("time: ",time)
+    println("states: ",current_number_of_states)
+    println("array_index: ",array_index)
     return continuous_state_space_mean[array_index](time)
 end
 
@@ -70,26 +71,19 @@ function distribution_prediction_at_given_time(
     observation_transform::Matrix{<:AbstractFloat},
     measurement_variance::AbstractFloat,
 )
-    println()
-    println(given_time)
-    println(continuous_state_space_mean_indexer(
-        continuous_state_space_mean,
-        given_time,
-        given_time,
-        states))
     mean_prediction = dot(observation_transform, state_space_mean[given_time, 2:3])
     continuous_mean_prediction = dot(observation_transform,
         continuous_state_space_mean_indexer(
             continuous_state_space_mean,
-            given_time,
-            given_time,
+            given_time-(states.discrete_delay+1),
+            given_time-(states.discrete_delay+1),
             states)
     )
-    
-    println("old mean prediction: ",mean_prediction)
-    println("new mean prediction test: ",continuous_state_space_mean[end](given_time))
-    println("new mean prediction: ",continuous_mean_prediction)
 
+    println("discrete: ",mean_prediction)
+    println("continuous: ",continuous_mean_prediction)
+    println()
+    
     last_predicted_covariance_matrix = state_space_variance[
         [given_time, states.total_number_of_states + given_time],
         [given_time, states.total_number_of_states + given_time],
@@ -185,7 +179,7 @@ function kalman_filter(
     # loop through observations and at each observation apply the Kalman prediction step and then the update step
     for observation_index = 2:size(protein_at_observations, 1)
         current_observation = protein_at_observations[observation_index, :]
-        kalman_prediction_step!(
+        state_space_mean, continuous_state_space_mean, state_space_variance = kalman_prediction_step!(
             state_space_mean,
             continuous_state_space_mean,
             state_space_variance,
@@ -209,7 +203,7 @@ function kalman_filter(
                 observation_transform,
                 measurement_variance,
             )
-        kalman_update_step!(
+        state_space_mean, continuous_state_space_mean, state_space_variance = kalman_update_step!(
             state_space_mean,
             continuous_state_space_mean,
             state_space_variance,
@@ -317,7 +311,7 @@ function kalman_filter_state_space_initialisation(
     state_space_mean = initialise_state_space_mean(states, steady_state)
     
     function initial_continuous_mean_function(t)
-        t >= 0.0 ? state_space_mean[1,[2,3]] : [0.0, 0.0]
+        t <= 0.0 ? copy(state_space_mean[1,[2,3]]) : [0.0, 0.0]
     end
     continuous_state_space_mean = fill(initial_continuous_mean_function,ceil(Int,τ/states.observation_time_step) + 1)
     state_space_variance = initialise_state_space_variance(states, steady_state)
@@ -336,7 +330,7 @@ function kalman_filter_state_space_initialisation(
     )
     # update the past ("negative time")
     current_observation = protein_at_observations[1, :]
-    kalman_update_step!(
+    state_space_mean, continuous_state_space_mean, state_space_variance = kalman_update_step!(
         state_space_mean,
         continuous_state_space_mean,
         state_space_variance,
@@ -388,6 +382,7 @@ function predict_state_space_mean!(
         # past_protein = h(p,t-p[7]) # TODO define history function
         past_index = Int(t) - states.discrete_delay
         past_protein = state_space_mean[past_index,3] # currently indexing array rather than using history function
+
         du[1] = -p[3]*u[1] + p[5]*hill_function(past_protein, p[1], p[2])
         du[2] = p[6]*u[1] - p[4]*u[2]
     end
@@ -408,30 +403,27 @@ function predict_state_space_mean!(
     function continuous_state_space_mean_RHS(du,u,p,t) # is there some way for this function to not be nested? does it matter?
         # past_protein = h(p,t-p[7]) # TODO define history function
         past_index = t - p[7]
-        past_protein = continuous_state_space_mean_indexer(continuous_state_space_mean, past_index,current_number_of_states,states)[2] # state_space_mean[past_index,3] # currently indexing array rather than using history function
-            
+        past_protein = continuous_state_space_mean_indexer(continuous_state_space_mean, past_index,current_number_of_states-(states.discrete_delay+1),states)[2] # state_space_mean[past_index,3] # currently indexing array rather than using history function
+
         du[1] = -p[3]*u[1] + p[5]*hill_function(past_protein, p[1], p[2])
         du[2] = p[6]*u[1] - p[4]*u[2]
     end
 
+
+    # initial_condition_times = Int.([current_number_of_states - (states.discrete_delay+1) + states.discrete_delay*x for x in 0:ceil(states.number_of_hidden_states/states.discrete_delay)-1])
     for initial_condition_state in initial_condition_times
-        tspan = (initial_condition_state,min(initial_condition_state + states.discrete_delay,current_number_of_states+states.number_of_hidden_states))
+        println("here 1: ",state_space_mean[initial_condition_state,2:3])
+        println("here 2: ",continuous_state_space_mean_indexer(continuous_state_space_mean,initial_condition_state-(states.discrete_delay+1),current_number_of_states-(states.discrete_delay+1),states))
+        tspan = (initial_condition_state,min(initial_condition_state + states.discrete_delay,current_number_of_states+states.number_of_hidden_states)) .- (states.discrete_delay+1) # TODO get right times
         continuous_mean_prob = ODEProblem(continuous_state_space_mean_RHS,
-                            continuous_state_space_mean_indexer(continuous_state_space_mean,initial_condition_state,current_number_of_states,states),#current_mean
+                            continuous_state_space_mean_indexer(continuous_state_space_mean,initial_condition_state-(states.discrete_delay+1),current_number_of_states-(states.discrete_delay+1),states),#current_mean
                             tspan,
                             model_parameters)#; constant_lags=[transcription_delay])
         continuous_mean_solution = solve(continuous_mean_prob,Euler(),dt=1.,adaptive=false,saveat=1.,dtmin=1.,dtmax=1.)
-        println("yes")
-        println(continuous_mean_solution(current_number_of_states))
         continuous_state_space_mean = [continuous_state_space_mean[2:end]...,continuous_mean_solution]
     end
 
-    println(continuous_state_space_mean[end](current_number_of_states))
-    println(continuous_mean_solution(current_number_of_states))
-    println(state_space_mean[current_number_of_states,:])
-
     return state_space_mean, continuous_state_space_mean
-
 end
 
 function predict_variance_first_step!(
@@ -678,7 +670,7 @@ function kalman_prediction_step!(
 
     instant_jacobian = construct_instant_jacobian(model_parameters)
 
-    predict_state_space_mean!(
+    state_space_mean, continuous_state_space_mean = predict_state_space_mean!(
         state_space_mean,
         continuous_state_space_mean,
         current_number_of_states,
@@ -736,11 +728,15 @@ function update_continuous_state_space_mean(
     states,
 )
     continuous_adaptation_coefficient_mRNA = LinearInterpolation(
-        1:states.discrete_delay+1,adaptation_coefficient[1:states.discrete_delay+1]
+        current_observation[1]-(states.discrete_delay):current_observation[1],
+        adaptation_coefficient[1:states.discrete_delay+1]
         )
     continuous_adaptation_coefficient_protein = LinearInterpolation(
-        1:states.discrete_delay+1,adaptation_coefficient[states.discrete_delay+2:end]
+        current_observation[1]-(states.discrete_delay):current_observation[1],
+        adaptation_coefficient[states.discrete_delay+2:end]
         )
+
+    println(continuous_adaptation_coefficient_protein)
 
     function continuous_adaptation_coefficient(t)
         [continuous_adaptation_coefficient_mRNA(t),
@@ -760,10 +756,6 @@ function update_continuous_state_space_mean(
     end
 
     updated_continuous_state_space_mean = continuous_state_space_mean .+ continuous_update_addition # this is wrong, should be + not ∘
-    println("here ",continuous_state_space_mean[1](2))
-    println("here ",continuous_state_space_mean[4](2))
-    println(updated_continuous_state_space_mean[1](2))
-    println(updated_continuous_state_space_mean[4](2))
 
     # stacked_state_space_mean .+= reshape(
     #     adaptation_coefficient * (
@@ -807,14 +799,10 @@ function update_mean!(
     predicted_final_state_space_mean = state_space_mean[current_number_of_states, [2, 3]]
     continuous_final_state_space_mean = continuous_state_space_mean_indexer(
         continuous_state_space_mean,
-        current_number_of_states,
-        current_number_of_states,
+        current_number_of_states-(states.discrete_delay+1),
+        current_number_of_states-(states.discrete_delay+1),
         states
     )
-
-    println()
-    println("discrete: ",predicted_final_state_space_mean)
-    println("continuous: ",continuous_final_state_space_mean)
 
     state_space_mean[
         (current_number_of_states-states.discrete_delay):current_number_of_states,
@@ -1002,7 +990,7 @@ function kalman_update_step!(
         helper_inverse,
     )
     # this is ρ*
-    update_mean!(
+    state_space_mean, continuous_state_space_mean = update_mean!(
         state_space_mean,
         continuous_state_space_mean,
         current_number_of_states,

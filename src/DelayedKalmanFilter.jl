@@ -13,6 +13,7 @@ include("hes5_ode_steady_state.jl")
 
 import Base.+  
 +(f::Function, g::Function) = (x...) -> f(x...) + g(x...)
++(f::SciMLBase.ODESolution, g::Function) = (x...) -> f(x...) + g(x...)
 
 # export TimeConstructor
 export kalman_filter
