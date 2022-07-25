@@ -51,9 +51,6 @@ function continuous_state_space_mean_indexer(
     states
 )
     array_index = length(continuous_state_space_mean) + min(0,floor(Int,(time-current_number_of_states)/states.observation_time_step))
-    println("time: ",time)
-    println("states: ",current_number_of_states)
-    println("array_index: ",array_index)
     return continuous_state_space_mean[array_index](time)
 end
 
@@ -80,9 +77,9 @@ function distribution_prediction_at_given_time(
             states)
     )
 
-    println("discrete: ",mean_prediction)
-    println("continuous: ",continuous_mean_prediction)
-    println()
+    # println(mean_prediction)
+    # println(continuous_mean_prediction)
+    # println()
     
     last_predicted_covariance_matrix = state_space_variance[
         [given_time, states.total_number_of_states + given_time],
@@ -403,7 +400,7 @@ function predict_state_space_mean!(
     function continuous_state_space_mean_RHS(du,u,p,t) # is there some way for this function to not be nested? does it matter?
         # past_protein = h(p,t-p[7]) # TODO define history function
         past_index = t - p[7]
-        past_protein = continuous_state_space_mean_indexer(continuous_state_space_mean, past_index,current_number_of_states-(states.discrete_delay+1),states)[2] # state_space_mean[past_index,3] # currently indexing array rather than using history function
+        past_protein = continuous_state_space_mean_indexer(continuous_state_space_mean, past_index,current_number_of_states-(states.discrete_delay+1)-states.number_of_hidden_states,states)[2] # state_space_mean[past_index,3] # currently indexing array rather than using history function
 
         du[1] = -p[3]*u[1] + p[5]*hill_function(past_protein, p[1], p[2])
         du[2] = p[6]*u[1] - p[4]*u[2]
@@ -412,8 +409,6 @@ function predict_state_space_mean!(
 
     # initial_condition_times = Int.([current_number_of_states - (states.discrete_delay+1) + states.discrete_delay*x for x in 0:ceil(states.number_of_hidden_states/states.discrete_delay)-1])
     for initial_condition_state in initial_condition_times
-        println("here 1: ",state_space_mean[initial_condition_state,2:3])
-        println("here 2: ",continuous_state_space_mean_indexer(continuous_state_space_mean,initial_condition_state-(states.discrete_delay+1),current_number_of_states-(states.discrete_delay+1),states))
         tspan = (initial_condition_state,min(initial_condition_state + states.discrete_delay,current_number_of_states+states.number_of_hidden_states)) .- (states.discrete_delay+1) # TODO get right times
         continuous_mean_prob = ODEProblem(continuous_state_space_mean_RHS,
                             continuous_state_space_mean_indexer(continuous_state_space_mean,initial_condition_state-(states.discrete_delay+1),current_number_of_states-(states.discrete_delay+1),states),#current_mean
@@ -736,42 +731,18 @@ function update_continuous_state_space_mean(
         adaptation_coefficient[states.discrete_delay+2:end]
         )
 
-    println(continuous_adaptation_coefficient_protein)
-
     function continuous_adaptation_coefficient(t)
         [continuous_adaptation_coefficient_mRNA(t),
          continuous_adaptation_coefficient_protein(t)]
     end
-
-    # function continuous_updater(
-    #     state_space_mean_updater,
-    #     index
-    # )
-    #     # some kind of interpolation
-    # end
 
     function continuous_update_addition(t)
         continuous_adaptation_coefficient(t) * ( current_observation[2] -
             dot(observation_transform, predicted_final_state_space_mean) )
     end
 
-    updated_continuous_state_space_mean = continuous_state_space_mean .+ continuous_update_addition # this is wrong, should be + not ∘
-
-    # stacked_state_space_mean .+= reshape(
-    #     adaptation_coefficient * (
-    #         current_observation[2] -
-    #         dot(observation_transform, predicted_final_state_space_mean)
-    #     ),
-    #     length(stacked_state_space_mean),
-    # )
-    # # ensure the mean mRNA and protein are non negative
-    # stacked_state_space_mean[stacked_state_space_mean.<0.0] .= 0.0
-
-    # updated_state_space_mean = hcat(
-    #     stacked_state_space_mean[1:(states.discrete_delay+1)],
-    #     stacked_state_space_mean[(states.discrete_delay+2):end],
-    # )
-
+    updated_continuous_state_space_mean = continuous_state_space_mean .+ continuous_update_addition
+    
     return updated_continuous_state_space_mean
 end
 
