@@ -11,9 +11,13 @@ using Test
     mean, variance, distributions =
         kalman_filter(protein_at_observations, model_parameters, measurement_variance)
 
+    discrete_delay = ceil(Int,model_parameters[end])
+    number_of_hidden_states = protein_at_observations[2,1] - protein_at_observations[1,1]
+    length_of_mean = ceil(Int,number_of_hidden_states/discrete_delay) + ceil(Int,discrete_delay/number_of_hidden_states)
+
     # check arrays are correct shape
-    @test size(mean) ==
-          (protein_at_observations[end, 1] + 1 + model_parameters[7], 3)
+    @test length(mean) ==
+          length_of_mean#(protein_at_observations[end, 1] + 1 + model_parameters[7], 3)
     @test size(variance) == (
         (protein_at_observations[end, 1] + 1 + model_parameters[7]) * 2,
         (protein_at_observations[end, 1] + 1 + model_parameters[7]) * 2,
