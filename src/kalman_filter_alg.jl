@@ -135,14 +135,20 @@ copy numbers. This implements the filter described by Calderazzo et al., Bioinfo
 
 # Example
 ```jldoctest
+julia> using DelayedKalmanFilter
+
 julia> protein = [0. 105.; 10. 100.; 20. 98.]; # times are 0., 10., 20., and protein levels are 105., 100., and 98. respectively
+
 julia> model_parameters = [100.0, 5.0, 0.1, 0.1, 1.0, 1.0, 15.0];
+
 julia> measurement_variance = 1000.0;
+
 julia> ss_mean, ss_var, distributions = kalman_filter(
            protein,
            model_parameters,
            measurement_variance
        );
+
 julia> distributions[1]
 Distributions.Normal{Float64}(μ=77.80895986786031, σ=93.7064351407417)
 ```

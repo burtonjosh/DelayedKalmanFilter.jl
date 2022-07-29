@@ -1,6 +1,8 @@
 using DelayedKalmanFilter
 using Documenter
 
+DocMeta.setdocmeta!(DelayedKalmanFilter, :DocTestSetup, :(using DelayedKalmanFilter); recursive=true)
+
 makedocs(;
     modules = [DelayedKalmanFilter],
     authors = "Joshua Burton",
@@ -14,4 +16,4 @@ makedocs(;
     pages = ["Home" => "index.md"],
 )
 
-deploydocs(; repo = "github.com/burtonjosh/DelayedKalmanFilter.jl")
+deploydocs(; repo = "github.com/burtonjosh/DelayedKalmanFilter.jl", devbranch="diffeq_new")
