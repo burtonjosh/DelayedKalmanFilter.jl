@@ -343,23 +343,33 @@ function predict_state_space_mean!(
     states
     )
 
-    initial_condition_times = Int.([current_number_of_states + states.discrete_delay*x for x in 0:ceil(states.number_of_hidden_states/states.discrete_delay)-1])
-    function state_space_mean_RHS(du,u,p,t) # is there some way for this function to not be nested? does it matter?
-        # past_protein = h(p,t-p[7]) # TODO define history function
-        past_index = t - p[7]
-        past_protein = state_space_mean_indexer(state_space_mean, past_index,current_number_of_states-(states.discrete_delay+1)-states.number_of_hidden_states,states)[2]
-
-        du[1] = -p[3]*u[1] + p[5]*hill_function(past_protein, p[1], p[2])
-        du[2] = p[6]*u[1] - p[4]*u[2]
-    end
+    initial_condition_times = [Float64(current_number_of_states)]# + states.discrete_delay*x for x in 0:ceil(states.number_of_hidden_states/states.discrete_delay)-1]
 
     for initial_condition_state in initial_condition_times
-        tspan = (initial_condition_state,min(initial_condition_state + states.discrete_delay,current_number_of_states+states.number_of_hidden_states)) .- (states.discrete_delay+1) # TODO get right times
-        mean_prob = ODEProblem(state_space_mean_RHS,
+        
+        function state_space_mean_RHS(du,u,h,p,t) # is there some way for this function to not be nested? does it matter?
+            past_index = t - p[7]
+            # history function in case τ < number_of_hidden_states
+            if past_index >= tspan[1]
+                past_protein = h(p,past_index;idxs=2)
+            # otherwise pre defined indexer
+            else
+                past_protein = state_space_mean_indexer(state_space_mean, past_index,current_number_of_states-(states.discrete_delay+1)-states.number_of_hidden_states,states)[2]
+            end
+    
+            du[1] = -p[3]*u[1] + p[5]*hill_function(past_protein, p[1], p[2])
+            du[2] = p[6]*u[1] - p[4]*u[2]
+        end
+    
+        h(p,t;idxs::Int) = 1.0
+        # tspan = (initial_condition_state,min(initial_condition_state + states.discrete_delay,current_number_of_states+states.number_of_hidden_states)) .- (states.discrete_delay+1) # TODO get right times
+        tspan = (initial_condition_state,current_number_of_states+states.number_of_hidden_states) .- (states.discrete_delay+1)
+        mean_prob = DDEProblem(state_space_mean_RHS,
                             state_space_mean_indexer(state_space_mean,initial_condition_state-(states.discrete_delay+1),current_number_of_states-(states.discrete_delay+1),states),#current_mean
+                            h,
                             tspan,
-                            model_parameters)#; constant_lags=[transcription_delay])
-        mean_solution = solve(mean_prob,Euler(),dt=1.,adaptive=false,saveat=1.,dtmin=1.,dtmax=1.)
+                            model_parameters; constant_lags=[model_parameters[7]])
+        mean_solution = solve(mean_prob,MethodOfSteps(Euler()),dt=1.,adaptive=false,saveat=1.,dtmin=1.,dtmax=1.)
         state_space_mean = [state_space_mean[2:end]...,mean_solution]
     end
 
