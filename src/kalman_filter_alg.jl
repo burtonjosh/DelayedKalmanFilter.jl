@@ -62,6 +62,7 @@ time point in the Kalman filtering algorithm and return it as a Normal distribut
 function distribution_prediction_at_given_time(
     state_space_mean,
     state_space_variance,
+    continuous_state_space_variance,
     states::TimeConstructor,
     given_time::Integer,
     observation_transform::Matrix{<:AbstractFloat},
@@ -143,7 +144,7 @@ julia> model_parameters = [100.0, 5.0, 0.1, 0.1, 1.0, 1.0, 15.0];
 
 julia> measurement_variance = 1000.0;
 
-julia> ss_mean, ss_var, distributions = kalman_filter(
+julia> ss_mean, ss_var, _, distributions = kalman_filter(
            protein,
            model_parameters,
            measurement_variance
@@ -164,7 +165,7 @@ function kalman_filter(
     observation_transform = [0.0 1.0]
     states = time_constructor_function(protein_at_observations, τ)
     # initialise state space and distribution predictions
-    state_space_mean, state_space_variance, predicted_observation_distributions =
+    state_space_mean, state_space_variance, continuous_state_space_variance, predicted_observation_distributions =
     kalman_filter_state_space_initialisation(
         protein_at_observations,
         model_parameters,
@@ -176,9 +177,10 @@ function kalman_filter(
     # loop through observations and at each observation apply the Kalman prediction step and then the update step
     for observation_index = 2:size(protein_at_observations, 1)
         current_observation = protein_at_observations[observation_index, :]
-        state_space_mean, state_space_variance = kalman_prediction_step!(
+        state_space_mean, state_space_variance, continuous_state_space_variance = kalman_prediction_step!(
             state_space_mean,
             state_space_variance,
+            continuous_state_space_variance,
             states,
             current_observation,
             model_parameters,
@@ -193,14 +195,16 @@ function kalman_filter(
             distribution_prediction_at_given_time(
                 state_space_mean,
                 state_space_variance,
+                continuous_state_space_variance,
                 states,
                 current_number_of_states,
                 observation_transform,
                 measurement_variance,
             )
-        state_space_mean, state_space_variance = kalman_update_step!(
+        state_space_mean, state_space_variance, continuous_state_space_variance = kalman_update_step!(
             state_space_mean,
             state_space_variance,
+            continuous_state_space_variance,
             states,
             current_observation,
             τ,
@@ -208,7 +212,7 @@ function kalman_filter(
             observation_transform,
         )
     end # for
-    return state_space_mean, state_space_variance, predicted_observation_distributions
+    return state_space_mean, state_space_variance, continuous_state_space_variance, predicted_observation_distributions
 end # function
 
 """
@@ -228,7 +232,8 @@ Initialse the state space variance for a given set of time states and the ODE sy
 """
 function initialise_state_space_variance(
     states::TimeConstructor,
-    steady_state;
+    steady_state,
+    τ;
     mRNA_scaling::AbstractFloat = 20.0,
     protein_scaling::AbstractFloat = 100.0,
 )
@@ -246,7 +251,13 @@ function initialise_state_space_variance(
     state_space_variance[diag_indices[mRNA_indices]] .= steady_state[1] * mRNA_scaling
     state_space_variance[diag_indices[protein_indices]] .= steady_state[2] * protein_scaling
 
-    return state_space_variance
+    function initial_continuous_variance_function(s,t)
+        t <= 0 && s <= 0 ? [steady_state[1]*mRNA_scaling 0.0; 0.0 steady_state[2]*protein_scaling] : [0. 0. ; 0. 0.]
+    end
+    
+    continuous_state_space_variance = fill(initial_continuous_variance_function,(3,ceil(Int,τ/states.observation_time_step) + ceil(Int,states.observation_time_step/τ)))
+
+    return state_space_variance, continuous_state_space_variance
 end
 
 """
@@ -297,7 +308,7 @@ function kalman_filter_state_space_initialisation(
 
     # construct state space
     state_space_mean = initialise_state_space_mean(states, steady_state, τ)
-    state_space_variance = initialise_state_space_variance(states, steady_state)
+    state_space_variance, continuous_state_space_variance = initialise_state_space_variance(states, steady_state, τ)
 
     # initialise distributions
     predicted_observation_distributions =
@@ -305,6 +316,7 @@ function kalman_filter_state_space_initialisation(
     predicted_observation_distributions[1] = distribution_prediction_at_given_time(
         state_space_mean,
         state_space_variance,
+        continuous_state_space_variance,
         states,
         states.initial_number_of_states,
         observation_transform,
@@ -312,9 +324,10 @@ function kalman_filter_state_space_initialisation(
     )
     # update the past ("negative time")
     current_observation = protein_at_observations[1, :]
-    state_space_mean, state_space_variance = kalman_update_step!(
+    state_space_mean, state_space_variance, continuous_state_space_variance = kalman_update_step!(
         state_space_mean,
         state_space_variance,
+        continuous_state_space_variance,
         states,
         current_observation,
         τ,
@@ -322,7 +335,7 @@ function kalman_filter_state_space_initialisation(
         observation_transform,
     )
 
-    return state_space_mean, state_space_variance, predicted_observation_distributions
+    return state_space_mean, state_space_variance, continuous_state_space_variance, predicted_observation_distributions
 end # function
 
 function construct_instant_jacobian(model_parameters)
@@ -387,6 +400,7 @@ function predict_variance_first_step!(
     current_number_of_states,
     off_diagonal_state_space_variance_RHS,
     state_space_variance,
+    continuous_state_space_variance,
     states
 )
     diag_tspan = (Float64(initial_condition_state), Float64(min(initial_condition_state+states.discrete_delay,current_number_of_states + states.number_of_hidden_states)))
@@ -426,6 +440,7 @@ function predict_variance_second_step!(
     current_number_of_states,
     state_space_variance_RHS,
     state_space_variance,
+    continuous_state_space_variance,
     model_parameters,
     states
 )
@@ -452,6 +467,7 @@ function predict_variance_third_step!(
     current_number_of_states,
     off_diagonal_state_space_variance_RHS,
     state_space_variance,
+    continuous_state_space_variance,
     states
 )
     for intermediate_time_index in initial_condition_state+1:min(initial_condition_state+states.discrete_delay,current_number_of_states + states.number_of_hidden_states)-1
@@ -492,6 +508,7 @@ There are three separate steps in the variance prediction:
 function predict_state_space_variance!(
     state_space_mean,
     state_space_variance,
+    continuous_state_space_variance,
     current_number_of_states,
     model_parameters,
     states,
@@ -550,6 +567,7 @@ function predict_state_space_variance!(
             current_number_of_states,
             off_diagonal_state_space_variance_RHS,
             state_space_variance,
+            continuous_state_space_variance,
             states
         )
         # (2) Integrate P(t,t) to P(t+nΔt,t+nΔt).
@@ -558,6 +576,7 @@ function predict_state_space_variance!(
             current_number_of_states,
             state_space_variance_RHS,
             state_space_variance,
+            continuous_state_space_variance,
             model_parameters,
             states
         )
@@ -567,6 +586,7 @@ function predict_state_space_variance!(
             current_number_of_states,
             off_diagonal_state_space_variance_RHS,
             state_space_variance,
+            continuous_state_space_variance,
             states
         )
     end # initial_condition_times for
@@ -608,6 +628,7 @@ approximated using a forward Euler scheme.
 function kalman_prediction_step!(
     state_space_mean,
     state_space_variance,
+    continuous_state_space_variance,
     states::TimeConstructor,
     current_observation::Vector{<:AbstractFloat},
     model_parameters::Vector{<:AbstractFloat},
@@ -635,12 +656,13 @@ function kalman_prediction_step!(
     predict_state_space_variance!(
         state_space_mean,
         state_space_variance,
+        continuous_state_space_variance,
         current_number_of_states,
         model_parameters,
         states,
         instant_jacobian
         )
-    return state_space_mean, state_space_variance
+    return state_space_mean, state_space_variance, continuous_state_space_variance
 end # function
 
 function update_mean!(
@@ -700,6 +722,7 @@ end
 
 function calculate_shortened_covariance_matrix(
     state_space_variance,
+    continuous_state_space_variance,
     current_number_of_states,
     states::TimeConstructor,
 )
@@ -719,6 +742,7 @@ Return the covariance matrix at the current (last predicted) number of states
 """
 function calculate_final_covariance_matrix(
     state_space_variance,
+    continuous_state_space_variance,
     current_number_of_states,
     states,
 )
@@ -736,6 +760,7 @@ end
 
 function update_variance!(
     state_space_variance,
+    continuous_state_space_variance,
     shortened_covariance_matrix,
     all_indices_up_to_delay,
     states,
@@ -757,7 +782,7 @@ function update_variance!(
     state_space_variance[all_indices_up_to_delay, all_indices_up_to_delay] =
         updated_shortened_covariance_matrix
 
-    return state_space_variance
+    return state_space_variance, continuous_state_space_variance
 end
 
 """
@@ -799,6 +824,7 @@ This assumes that the observations are collected at fixed time intervals.
 function kalman_update_step!(
     state_space_mean,
     state_space_variance,
+    continuous_state_space_variance,
     states::TimeConstructor,
     current_observation::Vector{<:AbstractFloat},
     τ::AbstractFloat,
@@ -814,6 +840,7 @@ function kalman_update_step!(
     shortened_covariance_matrix, all_indices_up_to_delay =
         calculate_shortened_covariance_matrix(
             state_space_variance,
+            continuous_state_space_variance,
             current_number_of_states,
             states,
         )
@@ -821,6 +848,7 @@ function kalman_update_step!(
     # This is P(t+Deltat,t+Deltat) in the paper
     predicted_final_covariance_matrix = calculate_final_covariance_matrix(
         state_space_variance,
+        continuous_state_space_variance,
         current_number_of_states,
         states,
     )
@@ -848,13 +876,14 @@ function kalman_update_step!(
         observation_transform,
     )
     # This is P*
-    update_variance!(
+    state_space_variance, continuous_state_space_variance = update_variance!(
         state_space_variance,
+        continuous_state_space_variance,
         shortened_covariance_matrix,
         all_indices_up_to_delay,
         states,
         adaptation_coefficient,
         observation_transform,
     )
-    return state_space_mean, state_space_variance
+    return state_space_mean, state_space_variance, continuous_state_space_variance
 end # function
