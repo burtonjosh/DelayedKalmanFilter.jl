@@ -8,7 +8,7 @@ using Test
         readdlm(string(loading_path, "kalman_filter_test_trace_observations.csv"), ',')
     model_parameters = [10000.0,5.0,log(2)/30,log(2)/90,1.0,1.0,29.0]
     measurement_variance = 10000.0
-    mean, variance, distributions =
+    mean, variance, _, distributions =
         kalman_filter(protein_at_observations, model_parameters, measurement_variance)
 
     discrete_delay = ceil(Int,model_parameters[end])

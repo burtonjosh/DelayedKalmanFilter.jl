@@ -2,7 +2,7 @@
 CurrentModule = DelayedKalmanFilter
 ```
 
-# DelayedKalmanFilter
+# DelayedKalmanFilter.jl: Approximate likelihood for delayed SDE's
 
 ```@index
 ```
