@@ -108,20 +108,19 @@ end
         measurement_variance::AbstractFloat,
     )
 
-Perform a delay-adjusted non-linear stochastic Kalman filter based on observation of protein
+A Kalman filter for a delay-adjusted non-linear stochastic process, based on observation of protein
 copy numbers. This implements the filter described by Calderazzo et al., Bioinformatics (2018).
 
 # Arguments
 
-- `protein_at_observations::AbstractArray{<:Real}`: Observed protein. The dimension is n x 2, where n is the number of observation time points.
-    The first column is the time, and the second column is the observed protein copy number at
-    that time. The filter assumes that observations are generated with a fixed, regular time interval.
+- `protein_at_observations::Matrix{<:AbstractFloat}`: Observed protein. The dimension is N x 2, where N is the number of observation time points.
+    The first column is the time, and the second column is the observed protein copy number. The filter assumes that observations are generated with a fixed, regular time interval.
 
-- `model_parameters::ModelParameters`: A ModelParameters object containing the model parameters in the following order:
-    repression threshold, hill coefficient, mRNA degradation rate,protein degradation rate, basal transcription rate,
-    translation rate, time delay.
+- `model_parameters::Vector{<:AbstractFloat}`: A vector containing the model parameters in the following order:
+    repression threshold (`P₀`), hill coefficient (`h`), mRNA degradation rate (`μₘ`), protein degradation rate (`μₚ`), basal transcription rate (`αₘ`),
+    translation rate (`αₚ`), and time delay (`τ`).
 
-- `measurement_variance::Real`: The variance in our measurement. This is given by Sigma epsilon in Calderazzo et. al. (2018).
+- `measurement_variance::AbstractFloat`: The variance in our measurement. This is given by ``Σ_ϵ`` in Calderazzo et. al. (2018).
 
 # Returns
 - `state_space_mean::Matrix{<:AbstractFloat}`: An N x 3 matrix, where N is the total number of states. The columns are time, mRNA
@@ -131,7 +130,7 @@ copy numbers. This implements the filter described by Calderazzo et al., Bioinfo
     matrix, where the blocks give the covariance of (mRNA, mRNA), (mRNA, protein), (protein, mRNA), and (protein, protein) for all times (t,s) where
     abs(t -s) <= τ, the transcriptional time delay.
 
-- `predicted_observation_distributions::Array{Normal{Float64}}`: An array of length n, whose entries are Normal distributions with mean and variance
+- `predicted_observation_distributions::Array{Normal{Float64}}`: An array of length N, whose entries are Normal distributions with mean and variance
     equal to the state space mean and variance predictions for the corresponding time point.
 
 # Example
