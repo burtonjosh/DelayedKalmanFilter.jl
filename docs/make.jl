@@ -13,7 +13,11 @@ makedocs(;
         canonical = "https://burtonjosh.github.io/DelayedKalmanFilter.jl",
         assets = String[],
     ),
-    pages = ["Home" => "index.md"],
+    pages = [
+        "Home" => "index.md",
+        "Examples" => ["Tutorial" => "examples/tutorial.md"],
+        "Library" => ["Public" => "lib/public.md", "Internals" => "lib/internals.md"]
+        ],
 )
 
 deploydocs(; repo = "github.com/burtonjosh/DelayedKalmanFilter.jl", devbranch="diffeq_new")

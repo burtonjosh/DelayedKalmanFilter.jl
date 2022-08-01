@@ -15,9 +15,7 @@ import Base.+
 +(f::Function, g::Function) = (x...) -> f(x...) + g(x...)
 +(f::SciMLBase.ODESolution, g::Function) = (x...) -> f(x...) + g(x...)
 
-# export TimeConstructor
 export kalman_filter
 export calculate_log_likelihood_at_parameter_point
-export calculate_steady_state_of_ode
 
 end # module
