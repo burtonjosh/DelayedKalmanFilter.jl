@@ -9,7 +9,9 @@ The package exports two functions, [`kalman_filter`](@ref) and [`calculate_log_l
 First we can simulate some observations. To do this, we define a stochastic delay differential equation problem using 
 
 ```@example tutorial
-using DelayedKalmanFilter, DifferentialEquations, StochasticDelayDiffEq, Plots
+using DelayedKalmanFilter, DifferentialEquations, StochasticDelayDiffEq, Plots, Statistics
+
+hillr(X, v, K, n) = v * (K^n) / (X^n + K^n)
 
 function hes_model_drift(du,u,h,p,t)
     P₀, n, μₘ, μₚ, αₘ, αₚ, τ = p
@@ -36,5 +38,5 @@ unobserved_data = Array(sol)[:,50:100];
 protein_observations = unobserved_data[2,:] + 0.1*mean(unobserved_data[2,:])*randn(length(unobserved_data[2,:]));
 
 scatter(unobserved_data[2,:],label="unobserved")
-scatter!(observed_data,label="observed",xlabel="Time",ylabel="Protein")
+scatter!(protein_observations,label="observed",xlabel="Time",ylabel="Protein")
 ```

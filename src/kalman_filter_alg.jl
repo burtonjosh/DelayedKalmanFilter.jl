@@ -815,7 +815,8 @@ function update_variance!(
         # the problem is with the index part, don't want to have to specify that - can it be made contextual?
     end
 
-    updated_continuous_state_space_variance = continuous_state_space_variance .+ variance_update_addition
+    ## TODO
+    # updated_continuous_state_space_variance = continuous_state_space_variance .+ variance_update_addition
 
 
     # function update_addition(t)
@@ -828,7 +829,7 @@ function update_variance!(
 
 
 
-    return state_space_variance, updated_continuous_state_space_variance
+    return state_space_variance, continuous_state_space_variance
 end
 
 """
@@ -921,15 +922,15 @@ function kalman_update_step!(
         helper_inverse,
     )
 
-    println("adap disc, ",adaptation_coefficient[[29,end]])
-    println("adap cont, ",adaptation_coefficient_function(
-    continuous_state_space_variance,
-    1,
-    0,
-    0,
-    observation_transform,
-    helper_inverse
-))
+    # println("adap disc, ",adaptation_coefficient[[29,end]])
+    # println("adap cont, ",adaptation_coefficient_function(
+#     continuous_state_space_variance,
+#     1,
+#     0,
+#     0,
+#     observation_transform,
+#     helper_inverse
+# ))
 
     # this is ρ*
     state_space_mean = update_mean!(
