@@ -16,10 +16,10 @@ This package calculates an approximate likelihood function for the delayed stoch
 with data ``y_t`` defined under the observation process
 
 ```math
-y_t = F x_t + \\epsilon_t,
+y_t = F x_t + \epsilon_t,
 ```
 
-where ``F`` is a ``1 \\times 2`` matrix, ``\\epsilon_t \\sim\\mathcal{N}(0,\\Sigma_\\epsilon)`` and ``\\Sigma_\\epsilon \\in \\mathbb{R}``.
+where ``F`` is a ``1 \times 2`` matrix, ``\epsilon_t \sim\mathcal{N}(0,\Sigma_\epsilon)`` and ``\Sigma_\epsilon \in \mathbb{R}``.
 
 The function ``f`` is a repressive Hill function,
 
@@ -30,10 +30,10 @@ f(p(t-\tau)) = \frac{1}{1 + [p(t-\tau)/P_0]^h}.
 Using a delay adjusted extended Kalman filter, we seek to define an approximate likelihood function
 
 ```math
-pi(\\mathbf{y}\\mid\\boldsymbol{\\theta}),
+\pi(\mathbf{y}\mid\boldsymbol{\theta}),
 ```
 
-where ``\\boldsymbol{\\theta}`` defines the parameters of the system.[^Calderazzo2019][^Burton2021].
+where ``\boldsymbol{\theta}`` defines the parameters of the system.[^Calderazzo2019][^Burton2021].
 
 [^Calderazzo2019]: Silvia Calderazzo, Marco Brancaccio, and Bärbel Finkenstädt (2018). Filtering and inference for stochastic oscillators with distributed delays. Bioinformatics, Volume 35, Issue 8, 15 April 2019. [https://doi.org/10.1093/bioinformatics/bty782](https://doi.org/10.1093/bioinformatics/bty782).
 

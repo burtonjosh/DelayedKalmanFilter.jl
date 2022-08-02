@@ -1,7 +1,3 @@
-```@setup tutorial
-using Plots
-```
-
 # Tutorial
 
 The package exports two functions, [`kalman_filter`](@ref) and [`calculate_log_likelihood_at_parameter_point`](@ref).
@@ -35,8 +31,9 @@ sol = solve(prob,RKMilCommute());
 
 unobserved_data = Array(sol)[:,50:100];
 
-protein_observations = unobserved_data[2,:] + 0.1*mean(unobserved_data[2,:])*randn(length(unobserved_data[2,:]));
+protein_observations = unobserved_data[2,:] + 
+    0.1*mean(unobserved_data[2,:])*randn(length(unobserved_data[2,:]));
 
-scatter(unobserved_data[2,:],label="unobserved")
-scatter!(protein_observations,label="observed",xlabel="Time",ylabel="Protein")
+scatter(unobserved_data[2,:], label="unobserved")
+scatter!(protein_observations, label="observed", xlabel="Time", ylabel="Protein")
 ```
