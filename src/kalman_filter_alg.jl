@@ -80,6 +80,13 @@ function distribution_prediction_at_given_time(
         [given_time, states.total_number_of_states + given_time],
         [given_time, states.total_number_of_states + given_time],
     ]
+
+    # println(last_predicted_covariance_matrix)
+    # println(continuous_state_space_variance[1](
+    #     given_time-(states.discrete_delay+1),
+    #     given_time-(states.discrete_delay+1)
+    #     )
+    # )
     variance_prediction =
         dot(
             observation_transform,
@@ -251,7 +258,7 @@ function initialise_state_space_variance(
     state_space_variance[diag_indices[protein_indices]] .= steady_state[2] * protein_scaling
 
     function initial_continuous_variance_function(s,t)
-        t <= 0 && s <= 0 ? [steady_state[1]*mRNA_scaling 0.0; 0.0 steady_state[2]*protein_scaling] : [0. 0. ; 0. 0.]
+        t <= 0 || s <= 0 ? [steady_state[1]*mRNA_scaling 0.0; 0.0 steady_state[2]*protein_scaling] : [0. 0. ; 0. 0.]
     end
     
     continuous_state_space_variance = fill(initial_continuous_variance_function,(3,ceil(Int,τ/states.observation_time_step) + ceil(Int,states.observation_time_step/τ)))
@@ -719,9 +726,19 @@ function calculate_adaptation_coefficient(cov_matrix, observation_transform, hel
     sum(dot.(cov_matrix, observation_transform), dims = 2) * helper_inverse
 end
 
+function adaptation_coefficient_function(
+    continuous_state_space_variance,
+    index,
+    t,
+    s,
+    observation_transform,
+    helper_inverse
+)
+    continuous_state_space_variance[index](t,s)*observation_transform'*helper_inverse
+end
+
 function calculate_shortened_covariance_matrix(
     state_space_variance,
-    continuous_state_space_variance,
     current_number_of_states,
     states::TimeConstructor,
 )
@@ -754,7 +771,9 @@ function calculate_final_covariance_matrix(
             current_number_of_states,
             states.total_number_of_states + current_number_of_states,
         ],
-    ]
+    ], continuous_state_space_variance[1](
+        current_number_of_states-(states.discrete_delay+1),
+        current_number_of_states-(states.discrete_delay+1))
 end
 
 function update_variance!(
@@ -765,6 +784,7 @@ function update_variance!(
     states,
     adaptation_coefficient,
     observation_transform,
+    helper_inverse
 )
 
     updated_shortened_covariance_matrix = (
@@ -781,7 +801,34 @@ function update_variance!(
     state_space_variance[all_indices_up_to_delay, all_indices_up_to_delay] =
         updated_shortened_covariance_matrix
 
-    return state_space_variance, continuous_state_space_variance
+    #### continuous variance part 
+    function variance_update_addition(t,s)
+        # return negative part 
+        -adaptation_coefficient_function(
+            continuous_state_space_variance,
+            1,
+            t,
+            s,
+            observation_transform,
+            helper_inverse
+        )*observation_transform*shortened_covariance_matrix[[states.discrete_delay + 1, end], :] # TODO need to fix this dimension mismatch
+        # the problem is with the index part, don't want to have to specify that - can it be made contextual?
+    end
+
+    updated_continuous_state_space_variance = continuous_state_space_variance .+ variance_update_addition
+
+
+    # function update_addition(t)
+    #     [adaptation_coefficient_mRNA(t),
+    #      adaptation_coefficient_protein(t)] * ( current_observation[2] -
+    #      dot(observation_transform, predicted_final_state_space_mean) )
+    # end
+
+    # updated_state_space_mean = state_space_mean .+ update_addition
+
+
+
+    return state_space_variance, updated_continuous_state_space_variance
 end
 
 """
@@ -839,18 +886,20 @@ function kalman_update_step!(
     shortened_covariance_matrix, all_indices_up_to_delay =
         calculate_shortened_covariance_matrix(
             state_space_variance,
-            continuous_state_space_variance,
             current_number_of_states,
             states,
         )
 
     # This is P(t+Deltat,t+Deltat) in the paper
-    predicted_final_covariance_matrix = calculate_final_covariance_matrix(
+    predicted_final_covariance_matrix, predicted_final_continuous_covariance_matrix = calculate_final_covariance_matrix(
         state_space_variance,
         continuous_state_space_variance,
         current_number_of_states,
         states,
     )
+
+    # println("final disc ", predicted_final_covariance_matrix)
+    # println("final cont ", predicted_final_continuous_covariance_matrix)
 
     # This is (FP_{t+Deltat}F^T + Sigma_e)^-1
     helper_inverse = calculate_helper_inverse(
@@ -859,12 +908,29 @@ function kalman_update_step!(
         measurement_variance,
     )
 
+    # helper_inverse_continuous = calculate_helper_inverse(
+    #     observation_transform,
+    #     predicted_final_continuous_covariance_matrix,
+    #     measurement_variance,
+    # )
+
     # This is C in the paper
     adaptation_coefficient = calculate_adaptation_coefficient(
         shortened_covariance_matrix[:, [states.discrete_delay + 1, end]],
         observation_transform,
         helper_inverse,
     )
+
+    println("adap disc, ",adaptation_coefficient[[29,end]])
+    println("adap cont, ",adaptation_coefficient_function(
+    continuous_state_space_variance,
+    1,
+    0,
+    0,
+    observation_transform,
+    helper_inverse
+))
+
     # this is ρ*
     state_space_mean = update_mean!(
         state_space_mean,
@@ -883,6 +949,8 @@ function kalman_update_step!(
         states,
         adaptation_coefficient,
         observation_transform,
+        helper_inverse
     )
+
     return state_space_mean, state_space_variance, continuous_state_space_variance
 end # function
