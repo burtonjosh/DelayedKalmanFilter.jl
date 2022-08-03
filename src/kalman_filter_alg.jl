@@ -711,11 +711,11 @@ function update_mean!(
         states
     )
 
-    adaptation_coefficient_mRNA = LinearInterpolation(
+    adaptation_coefficient_mRNA = linear_interpolation(
         current_observation[1]-(states.discrete_delay):current_observation[1],
         adaptation_coefficient[1:states.discrete_delay+1]
         )
-    adaptation_coefficient_protein = LinearInterpolation(
+    adaptation_coefficient_protein = linear_interpolation(
         current_observation[1]-(states.discrete_delay):current_observation[1],
         adaptation_coefficient[states.discrete_delay+2:end]
         )
