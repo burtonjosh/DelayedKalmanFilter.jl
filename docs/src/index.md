@@ -24,8 +24,10 @@ where ``F`` is a ``1 \times 2`` matrix, ``\epsilon_t \sim\mathcal{N}(0,\Sigma_\e
 The function ``f`` is a repressive Hill function,
 
 ```math
-f(p(t-\tau)) = \frac{1}{1 + [p(t-\tau)/P_0]^h}.
+f(p(t-\tau)) = \frac{1}{1 + [p(t-\tau)/P_0]^h},
 ```
+
+and ``\xi_m`` and ``\xi_p`` are temporally uncorrelated, statistically independent Gaussian white noises.
 
 Using a delay adjusted extended Kalman filter, we seek to define an approximate likelihood function
 
