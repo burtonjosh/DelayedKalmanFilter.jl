@@ -1,3 +1,7 @@
 [deps]
 DelayedKalmanFilter = "e7b67432-a7e4-4c49-9822-a0c26f350161"
+DifferentialEquations = "0c46a032-eb83-5123-abaf-570d42b7fbaa"
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
+Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
+StochasticDelayDiffEq = "29a0d76e-afc8-11e9-03a4-eda52ae4b960"

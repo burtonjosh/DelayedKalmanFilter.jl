@@ -1,6 +1,5 @@
 using DelayedKalmanFilter
 using Documenter
-using DifferentialEquations, StochasticDelayDiffEq, Plots, Statistics
 
 DocMeta.setdocmeta!(DelayedKalmanFilter, :DocTestSetup, :(using DelayedKalmanFilter); recursive=true)
 
