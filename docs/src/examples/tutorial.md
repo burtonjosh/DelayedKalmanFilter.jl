@@ -18,7 +18,7 @@ end
 function hes_model_noise(du,u,h,p,t)
     P₀, n, μₘ, μₚ, αₘ, αₚ, τ = p
     du[1] = sqrt(max(0.,hillr(h(p,t-τ;idxs=2),αₘ,P₀,n) + μₘ*u[1]))
-    du[2] = sqrt(max(0,αₚ*u[1] + μₚ*u[2]))
+    du[2] = sqrt(max(0.,αₚ*u[1] + μₚ*u[2]))
 end
 
 h(p, t; idxs::Int) = 1.0;

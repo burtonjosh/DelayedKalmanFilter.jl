@@ -54,6 +54,30 @@ function state_space_mean_indexer(
     return state_space_mean[array_index](time)
 end
 
+"""
+Helper function to return the state space variance for two given (real valued) times t₁ and t₂, between t-τ and t+Δobs,
+where t is the current number of states.
+"""
+function state_space_variance_indexer(
+    state_space_variance,
+    time_1,
+    time_2,
+    current_number_of_states,
+    states
+)
+    if time_1 == time_2
+        position_index = 1
+    elseif time_1 > time_2 # TODO not sure about this
+        position_index = 2
+    else
+        position_index = 3
+    end
+
+    array_index = size(state_space_variance,2) + min(0,floor(Int,(time_1-current_number_of_states)/states.observation_time_step)) # TODO not sure about this either
+
+    return state_space_variance[position_index,array_index](time_1,time_2)
+end
+
 
 """
 Calculate the mean and variance of the Normal approximation of the state space for a given
