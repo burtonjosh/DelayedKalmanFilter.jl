@@ -13,6 +13,7 @@ begin
     TolVibrantBlue = RGBA{Float64}(colorant"#0077BB")
     TolVibrantMagenta = RGBA{Float64}(colorant"#EE3377")
 end;
+nothing # hide
 ```
 First we can simulate some observations. To do this, we define a stochastic delay differential equation problem using the [StochasticDelayDiffEq.jl](https://github.com/SciML/StochasticDelayDiffEq.jl) package.
 
@@ -34,6 +35,7 @@ function hes_model_noise(du,u,h,p,t)
 end
 
 h(p, t; idxs::Int) = 1.0;
+nothing # hide
 ```
 We use a chemical Langevin equation to simulate our SDDE system, as can be seen from the definition of the noise function[^Gillespie2000].
 
