@@ -19,7 +19,7 @@ with time-series data ``y_t`` defined under the observation process
 y_t = F x_t + \epsilon_t,
 ```
 
-where ``x_t = \[m(t), p(t)\]^T``, ``F`` is a ``1 \times 2`` matrix, ``\epsilon_t \sim\mathcal{N}(0,\Sigma_\epsilon)`` and ``\Sigma_\epsilon \in \mathbb{R}``.
+where ``x_t = [m(t), p(t)]^T``, ``F`` is a ``1 \times 2`` matrix, ``\epsilon_t \sim\mathcal{N}(0,\Sigma_\epsilon)`` and ``\Sigma_\epsilon \in \mathbb{R}``.
 
 The function ``f`` is a repressive Hill function,
 
