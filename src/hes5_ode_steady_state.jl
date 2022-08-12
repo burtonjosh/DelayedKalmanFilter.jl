@@ -18,11 +18,12 @@ Calculate the Hill function for a given protein molecule number, repression thre
 - `h::Real`
 """
 function hill_function(protein, P₀, h)
-    return 1 / (1 + (protein / P₀)^h)
+    return (P₀^h) / (protein^h + P₀^h)
 end
 
-∂hill∂p(protein, P₀, h) =
-    ForwardDiff.derivative(protein -> hill_function(protein, P₀, h), protein)
+function ∂hill∂p(protein, P₀, h)
+    return ForwardDiff.derivative(protein -> hill_function(protein, P₀, h), protein)
+end
 
 """
 Calculate the steady state of the Hes5 ODE system, for a specific set of parameters.
