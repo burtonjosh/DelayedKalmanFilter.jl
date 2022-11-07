@@ -512,7 +512,7 @@ function predict_variance_first_step!(
             intermediate_time_index
         )
         continuous_off_diag_solution = solve(continuous_off_diag_prob,Euler(),dt=1.,adaptive=false,saveat=1.,dtmin=1.,dtmax=1.)
-        continuous_state_space_variance[array_index,:] = [continuous_state_space_variance[array_index,2:end]...,continuous_off_diag_solution] # does this work?
+        continuous_state_space_variance[array_index,:] = [continuous_state_space_variance[array_index,2:end]...,continuous_off_diag_solution]
     end
 end
 
@@ -554,7 +554,7 @@ function predict_variance_second_step!(
                                 tspan,
                                 model_parameters)
     continuous_diag_solution = solve(continuous_diag_prob,Euler(),dt=1.,adaptive=false,saveat=1.,dtmin=1.,dtmax=1.)
-    continuous_state_space_variance[states.discrete_delay+1,:] = [continuous_state_space_variance[states.discrete_delay+1,2:end]...,continuous_diag_solution] # does this work?
+    continuous_state_space_variance[states.discrete_delay+1,:] = [continuous_state_space_variance[states.discrete_delay+1,2:end]...,continuous_diag_solution]
 end
 
 function predict_variance_third_step!(
@@ -608,7 +608,10 @@ function predict_variance_third_step!(
                                     diag_tspan,
                                     intermediate_time_index)
         continuous_off_diag_solution = solve(continuous_off_diag_prob,Euler(),dt=1.,adaptive=false,saveat=1.,dtmin=1.,dtmax=1.)
-        continuous_state_space_variance[states.discrete_delay + 1 + array_index,end] = continuous_off_diag_solution # don't think this will work, and it's not right anyway
+        continuous_state_space_variance[states.discrete_delay + 1 + array_index,:] = [
+            continuous_state_space_variance[states.discrete_delay + 1 + array_index,2:end]...,
+            continuous_off_diag_solution
+        ]
     end
     #end
 end
