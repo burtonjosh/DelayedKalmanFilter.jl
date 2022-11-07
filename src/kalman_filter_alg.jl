@@ -83,15 +83,8 @@ function state_space_variance_indexer(
     states
 )
 
-    # println("t_1: ", time_1)
-    # println("t_2: ", time_2)
-    # println("t_curr: ", current_number_of_states)
-    # @assert time_1 <= time_2 "time_1 is greater than time_2"
     ref_point = min(current_number_of_states, prevmult(max(time_1,time_2),10))
-    # println("ref_point: ", ref_point)
-
     array_index = size(state_space_variance,2) + min(0,floor(Int,(max(time_1,time_2)-current_number_of_states)/states.observation_time_step))
-    # t_c = current_number_of_states - states.number_of_hidden_states*(size(state_space_variance,2)-array_index)
 
     if time_1 == time_2
         position_index = states.discrete_delay + 1
@@ -100,10 +93,6 @@ function state_space_variance_indexer(
     else
         position_index = states.discrete_delay + 1 + ceil(Int,min(time_1,time_2) - ref_point)
     end
-
-    # println(array_index)
-    # println(position_index)
-    # tt
 
     return state_space_variance[position_index,array_index](time_2)
 end
@@ -135,15 +124,6 @@ function distribution_prediction_at_given_time(
         [given_time, states.total_number_of_states + given_time],
     ]
 
-    if given_time < 60
-        println("Prediction")
-        println(last_predicted_covariance_matrix)
-        println(continuous_state_space_variance[states.discrete_delay+1,1](
-            given_time-(states.discrete_delay+1)
-            )
-        )
-        println()
-    end
     variance_prediction =
         dot(
             observation_transform,
@@ -221,7 +201,6 @@ function kalman_filter(
     model_parameters::Vector{<:AbstractFloat},
     measurement_variance::AbstractFloat,
 )
-
     τ = model_parameters[7]
     # F in the paper
     observation_transform = [0.0 1.0]
@@ -262,7 +241,7 @@ function kalman_filter(
                 observation_transform,
                 measurement_variance,
             )
-        @time state_space_mean, state_space_variance, continuous_state_space_variance = kalman_update_step!(
+        state_space_mean, state_space_variance, continuous_state_space_variance = kalman_update_step!(
             state_space_mean,
             state_space_variance,
             continuous_state_space_variance,
@@ -279,10 +258,6 @@ end # function
 Initialse the state space mean for a given set of time states and the ODE system's steady state
 """
 function initialise_state_space_mean(states::TimeConstructor, steady_state,τ)
-
-    # function initial_continuous_mean_function(t)
-    #     t <= 0.0 ? steady_state : [0.0, 0.0]
-    # end
 
     function initial_mean!(du,u,p,t)
         du[1] = 0
@@ -310,7 +285,7 @@ function initialise_state_space_variance(
     protein_scaling::AbstractFloat = 100.0,
 )
 
-    state_space_variance = zeros(#Matrix{Float64}(undef,
+    state_space_variance = zeros(
         2*states.total_number_of_states,
         2*states.total_number_of_states,
     )
@@ -322,10 +297,6 @@ function initialise_state_space_variance(
 
     state_space_variance[diag_indices[mRNA_indices]] .= steady_state[1] * mRNA_scaling
     state_space_variance[diag_indices[protein_indices]] .= steady_state[2] * protein_scaling
-
-    # function initial_continuous_variance_function(s,t)
-    #     t <= 0 || s <= 0 ? [steady_state[1]*mRNA_scaling 0.0; 0.0 steady_state[2]*protein_scaling] : [0. 0. ; 0. 0.]
-    # end
 
     function initial_variance!(du,u,p,t)
         du = 0
@@ -349,11 +320,6 @@ function initialise_state_space_variance(
             continuous_state_space_variance[i,j] = sol
         end
     end
-
-    # continuous_state_space_variance = fill(sol,(
-    #     states.discrete_delay+states.observation_time_step+1,
-    #     ceil(Int,τ/states.observation_time_step) + ceil(Int,states.observation_time_step/τ)
-    #     ))
 
     return state_space_variance, continuous_state_space_variance
 end
@@ -399,9 +365,7 @@ function kalman_filter_state_space_initialisation(
     observation_transform,
     measurement_variance::AbstractFloat = 10.0,
 )
-
     τ = model_parameters[7]
-
     steady_state = calculate_steady_state_of_ode(model_parameters)
 
     # construct state space
@@ -410,7 +374,7 @@ function kalman_filter_state_space_initialisation(
 
     # initialise distributions
     predicted_observation_distributions =
-        fill(Normal(),states.number_of_observations)#Array{Normal{Float64}}(undef, states.number_of_observations)
+        fill(Normal(),states.number_of_observations)
     predicted_observation_distributions[1] = distribution_prediction_at_given_time(
         state_space_mean,
         state_space_variance,
@@ -459,7 +423,7 @@ function predict_state_space_mean!(
     states
     )
 
-    function state_space_mean_RHS(du,u,h,p,t) # is there some way for this function to not be nested? does it matter?
+    function state_space_mean_RHS(du,u,h,p,t)
         past_index = t - p[7]
         if past_index >= tspan[1] # history function in case τ < number_of_hidden_states
             past_protein = h(p,past_index;idxs=2)
@@ -494,6 +458,7 @@ function predict_variance_first_step!(
     states
 )
     diag_tspan = (Float64(initial_condition_state), Float64(min(initial_condition_state+states.discrete_delay,current_number_of_states + states.number_of_hidden_states)))
+
     # solve first batch of off diagonals
     # we want to do P(s,t) -> P(s,t+nΔt) for s = t-τ:t
     for intermediate_time_index in max(initial_condition_state - states.discrete_delay, states.discrete_delay+1):initial_condition_state
@@ -507,7 +472,6 @@ function predict_variance_first_step!(
                                     diag_tspan,
                                     intermediate_time_index)#model_parameters)
         off_diag_solution = solve(off_diag_prob,Euler(),dt=1.,adaptive=false,saveat=1.,dtmin=1.,dtmax=1.)
-
         # Fill in the big matrix
         for index in initial_condition_state+1:min(initial_condition_state+states.discrete_delay,current_number_of_states + states.number_of_hidden_states)
             if index - intermediate_time_index <= states.discrete_delay # this is hacky -- fix above to do less computations
@@ -525,7 +489,6 @@ function predict_variance_first_step!(
     end # intermediate time index for
 
     # continuous part
-    # diag_tspan = (Float64(initial_condition_state), Float64(min(initial_condition_state+states.discrete_delay,current_number_of_states + states.number_of_hidden_states))) .- (states.discrete_delay)
     for (array_index,intermediate_time_index) in enumerate((max(initial_condition_state - states.discrete_delay, states.discrete_delay+1):initial_condition_state))
         #TODO replace with continuous version
         covariance_matrix_intermediate_to_current = state_space_variance[[intermediate_time_index,
@@ -533,16 +496,14 @@ function predict_variance_first_step!(
                                                                          [initial_condition_state,
                                                                           states.total_number_of_states+initial_condition_state]]
         
-                                                                          # continuous version
+        # continuous version
         # covariance_matrix_intermediate_to_current = state_space_variance_indexer(
         #     continuous_state_space_variance,
-        #     intermediate_time_index,
-        #     initial_condition_state,
-        #     current_number_of_states,
+        #     intermediate_time_index-(states.discrete_delay+1),
+        #     initial_condition_state-(states.discrete_delay+1),
+        #     current_number_of_states-(states.discrete_delay+1),
         #     states
         # )
-
-        # tt
 
         continuous_off_diag_prob = ODEProblem(
             continuous_off_diagonal_state_space_variance_RHS,
@@ -552,7 +513,6 @@ function predict_variance_first_step!(
         )
         continuous_off_diag_solution = solve(continuous_off_diag_prob,Euler(),dt=1.,adaptive=false,saveat=1.,dtmin=1.,dtmax=1.)
         continuous_state_space_variance[array_index,:] = [continuous_state_space_variance[array_index,2:end]...,continuous_off_diag_solution] # does this work?
-        # state_space_mean = [state_space_mean[2:end]...,mean_solution]
     end
 end
 
@@ -606,10 +566,8 @@ function predict_variance_third_step!(
     continuous_state_space_variance,
     states
 )
-    # diag_tspan = (Float64(initial_condition_state), Float64(min(initial_condition_state+states.discrete_delay,current_number_of_states + states.number_of_hidden_states)))
-    # solve first batch of off diagonals
-    # we want to do P(s,t) -> P(s,t+nΔt) for s = t-τ:t
-    # for intermediate_time_index in max(initial_condition_state - states.discrete_delay, states.discrete_delay+1):initial_condition_state
+    # solve second batch of off diagonals
+    # we want to do P(s,s) -> P(s,t+nΔt) for s = t:t+nΔt
     for intermediate_time_index in initial_condition_state+1:min(initial_condition_state+states.discrete_delay,current_number_of_states + states.number_of_hidden_states)-1
         covariance_matrix_intermediate = state_space_variance[[intermediate_time_index,
                                                                 states.total_number_of_states+intermediate_time_index],
@@ -617,7 +575,6 @@ function predict_variance_third_step!(
                                                                 states.total_number_of_states+intermediate_time_index]]
 
         diag_tspan = (Float64(intermediate_time_index),Float64(min(initial_condition_state+states.discrete_delay,current_number_of_states + states.number_of_hidden_states)))
-        # println("discrete tspan: ", diag_tspan)
         off_diag_prob = ODEProblem(off_diagonal_state_space_variance_RHS,
                                     covariance_matrix_intermediate,# P(s,s)
                                     diag_tspan,
@@ -638,7 +595,6 @@ function predict_variance_third_step!(
     end # intermediate time index for
 
     # continuous part
-    # for (array_index,intermediate_time_index) in enumerate((max(initial_condition_state - states.discrete_delay, states.discrete_delay+1):initial_condition_state ) .- (states.discrete_delay) )
     for (array_index,intermediate_time_index) in enumerate(initial_condition_state+1:min(initial_condition_state+states.discrete_delay,current_number_of_states + states.number_of_hidden_states)-1 )
         diag_tspan = (Float64(intermediate_time_index),Float64(min(initial_condition_state+states.discrete_delay,current_number_of_states + states.number_of_hidden_states)))
         #TODO replace with continuous version
@@ -652,8 +608,6 @@ function predict_variance_third_step!(
                                     diag_tspan,
                                     intermediate_time_index)
         continuous_off_diag_solution = solve(continuous_off_diag_prob,Euler(),dt=1.,adaptive=false,saveat=1.,dtmin=1.,dtmax=1.)
-        # println("got here post solve")
-        # println(array_index)
         continuous_state_space_variance[states.discrete_delay + 1 + array_index,end] = continuous_off_diag_solution # don't think this will work, and it's not right anyway
     end
     #end
@@ -698,10 +652,6 @@ function predict_state_space_variance!(
     function off_diagonal_state_space_variance_RHS(du,u,p,diag_t) # p is the intermediate time index s
         past_index = Int(diag_t) - states.discrete_delay # t - τ
         past_protein = state_space_mean_indexer(state_space_mean, past_index-(states.discrete_delay+1),current_number_of_states-(states.discrete_delay+1),states)[2]
-        # println("discrete, ",past_protein)
-        # println("t_1: ", p)
-        # println("t_2: ", past_index)
-
         delayed_jacobian = construct_delayed_jacobian(model_parameters, past_protein)
 
         if diag_t < 1 || past_index < 1
@@ -725,7 +675,7 @@ function predict_state_space_variance!(
 
         past_to_now_diagonal_variance = state_space_variance_indexer(
             continuous_state_space_variance,
-            past_index-(states.discrete_delay),# not sure about these times
+            past_index-(states.discrete_delay+1),# not sure about these times
             t-(states.discrete_delay+1),
             current_number_of_states-(states.discrete_delay+1),
             states
@@ -744,16 +694,7 @@ function predict_state_space_variance!(
 
     function continuous_off_diagonal_state_space_variance_RHS(du,u,p,diag_t) # p is the intermediate time index s
         past_index = Int(diag_t) - states.discrete_delay # t - τ
-        # println("got here 7")
-        # println()
-        # println(past_index-(states.discrete_delay+1))
-        # println(current_number_of_states-(states.discrete_delay+1))
         past_protein = state_space_mean_indexer(state_space_mean, past_index-(states.discrete_delay+1),current_number_of_states-(states.discrete_delay+1),states)[2]
-        # println("got here 8")
-        # println("continuous, ",past_protein)
-        # println(past_index)
-        # println(past_protein)
-        # println("t_c what: ",current_number_of_states)
 
         delayed_jacobian = construct_delayed_jacobian(model_parameters, past_protein)
 
@@ -776,7 +717,6 @@ function predict_state_space_variance!(
     # in the case of τ < observation_time_step, we have to do the below procedure multiple times (ceil(observation/τ) times)
     # since otherwise certain P(t-τ,s) values will not exist #TODO bad explanation
     initial_condition_times = Int.([current_number_of_states + states.discrete_delay*x for x in 0:ceil(states.number_of_hidden_states/states.discrete_delay)-1])
-    # println(initial_condition_times)
     for initial_condition_state in initial_condition_times
         # (1) Integrate P(t,s) to P(t+nΔt,s) for s = t-τ:t.
         predict_variance_first_step!(
@@ -853,10 +793,6 @@ function kalman_prediction_step!(
     current_observation::Vector{<:AbstractFloat},
     model_parameters::Vector{<:AbstractFloat},
 )
-
-    τ = model_parameters[7]
-
-    # @unpack P₀, h, μₘ, μₚ, αₘ, αₚ, τ = model_parameters
     # this is the number of states at t, i.e. before predicting towards t+observation_time_step
     current_number_of_states = calculate_current_number_of_states(
         current_observation[1] - states.number_of_hidden_states,
@@ -1021,9 +957,8 @@ function update_variance!(
     state_space_variance[all_indices_up_to_delay, all_indices_up_to_delay] =
         updated_shortened_covariance_matrix
 
-##############################################################################
-
-        #### continuous variance part
+    
+    # continuous variance part
     function diagonal_variance_update_addition(t)
         # return negative part 
         return -state_space_variance_indexer(
@@ -1137,9 +1072,6 @@ function kalman_update_step!(
         states,
     )
 
-    # println("final disc ", predicted_final_covariance_matrix)
-    # println("final cont ", predicted_final_continuous_covariance_matrix)
-
     # This is (FP_{t+Deltat}F^T + Sigma_e)^-1
     helper_inverse = calculate_helper_inverse(
         observation_transform,
@@ -1160,16 +1092,6 @@ function kalman_update_step!(
         helper_inverse,
     )
 
-    # println("adap disc, ",adaptation_coefficient[[29,end]])
-    # println("adap cont, ",adaptation_coefficient_function(
-#     continuous_state_space_variance,
-#     1,
-#     0,
-#     0,
-#     observation_transform,
-#     helper_inverse
-# ))
-
     # this is ρ*
     state_space_mean = update_mean!(
         state_space_mean,
@@ -1179,6 +1101,7 @@ function kalman_update_step!(
         current_observation,
         observation_transform,
     )
+
     # This is P*
     state_space_variance, continuous_state_space_variance = update_variance!(
         state_space_variance,
@@ -1191,14 +1114,6 @@ function kalman_update_step!(
         observation_transform,
         helper_inverse
     )
-
-    if current_number_of_states < 60
-        println("Update")
-        println(state_space_variance[[current_number_of_states,current_number_of_states+states.total_number_of_states],
-                                     [current_number_of_states,current_number_of_states+states.total_number_of_states]])
-        println(continuous_state_space_variance[states.discrete_delay+1,end](current_number_of_states-(states.discrete_delay+1)))
-        println()
-    end
 
     return state_space_mean, state_space_variance, continuous_state_space_variance
 end # function
