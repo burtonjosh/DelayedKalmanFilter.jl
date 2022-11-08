@@ -85,14 +85,17 @@ function state_space_variance_indexer(
 
     ref_point = min(current_number_of_states, prevmult(max(time_1,time_2),10))
     array_index = size(state_space_variance,2) + min(0,floor(Int,(max(time_1,time_2)-current_number_of_states)/states.observation_time_step))
+    # println("ref: ", ref_point)
+    # println("arr: ", array_index)
 
     if time_1 == time_2
         position_index = states.discrete_delay + 1
     elseif min(time_1,time_2) < ref_point # replace current_number_of_states with t_c
         position_index = states.discrete_delay + 1 - ceil(Int,ref_point - min(time_1,time_2))
     else
-        position_index = states.discrete_delay + 1 + ceil(Int,min(time_1,time_2) - ref_point)
+        position_index = states.discrete_delay + 1 + ceil(Int,max(time_1,time_2) - ref_point)
     end
+    # println("pos: ", position_index)
 
     return state_space_variance[position_index,array_index](time_2)
 end
@@ -545,12 +548,12 @@ function predict_variance_second_step!(
 
     # continuous part
     #TODO replace with continuous version
-    initial_covariance = state_space_variance[[initial_condition_state,
-                                               states.total_number_of_states+initial_condition_state],
-                                              [initial_condition_state,
-                                               states.total_number_of_states+initial_condition_state]]
+    # initial_covariance = state_space_variance[[initial_condition_state,
+    #                                            states.total_number_of_states+initial_condition_state],
+    #                                           [initial_condition_state,
+    #                                            states.total_number_of_states+initial_condition_state]]
     continuous_diag_prob = ODEProblem(continuous_state_space_variance_RHS,
-                                initial_covariance,# P(s,t)
+                                initial_covariance,# P(t,t)
                                 tspan,
                                 model_parameters)
     continuous_diag_solution = solve(continuous_diag_prob,Euler(),dt=1.,adaptive=false,saveat=1.,dtmin=1.,dtmax=1.)
@@ -613,7 +616,6 @@ function predict_variance_third_step!(
             continuous_off_diag_solution
         ]
     end
-    #end
 end
 
 """
@@ -820,6 +822,20 @@ function kalman_prediction_step!(
         states,
         instant_jacobian
         )
+
+    println("Prediction step: ")
+    println(state_space_variance[
+        [
+            current_number_of_states,
+            states.total_number_of_states + current_number_of_states,
+        ],
+        [
+            current_number_of_states,
+            states.total_number_of_states + current_number_of_states,
+        ]
+    ])
+    println(continuous_state_space_variance[states.discrete_delay+1,end](current_number_of_states))
+    println()
     return state_space_mean, state_space_variance, continuous_state_space_variance
 end # function
 
@@ -1000,9 +1016,14 @@ function update_variance!(
                 return helper_inverse*variance_s*observation_transform'*
                     observation_transform*variance_t'#shortened_covariance_matrix[[states.discrete_delay + 1, end], [states.discrete_delay + 1, end]] # TODO need to fix this last part, P_t,t-τ:t
             end
+            # println(variance_update_addition(2))
 
-            # currently commented out because this takes a really long time??        
-            # updated_continuous_state_space_variance[array_index,:] = updated_continuous_state_space_variance[array_index,:] .+ variance_update_addition
+            # currently commented out because this takes a really long time??
+            # println(updated_continuous_state_space_variance[array_index,end](current_number_of_states+1))
+            for pos_index in 1:last(size(updated_continuous_state_space_variance))
+                updated_continuous_state_space_variance[array_index,pos_index] = updated_continuous_state_space_variance[array_index,pos_index] + variance_update_addition
+            end
+            # println(updated_continuous_state_space_variance[array_index,end](current_number_of_states+1))
         end
     end
 
@@ -1117,6 +1138,20 @@ function kalman_update_step!(
         observation_transform,
         helper_inverse
     )
+
+    println("Update step: ")
+    println(state_space_variance[
+        [
+            current_number_of_states,
+            states.total_number_of_states + current_number_of_states,
+        ],
+        [
+            current_number_of_states,
+            states.total_number_of_states + current_number_of_states,
+        ]
+    ])
+    println(continuous_state_space_variance[states.discrete_delay+1,end](current_number_of_states))
+    println()
 
     return state_space_mean, state_space_variance, continuous_state_space_variance
 end # function
