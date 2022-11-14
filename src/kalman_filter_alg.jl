@@ -1,131 +1,32 @@
-"""
-`prevmult(x,n)`
+mutable struct SystemState
+    means # array of sol objects
+    variances # array of sol objects
+    off_diagonals # circular buffer with entries which are arrays
+    off_diagonal_timepoints # the s values corresponding to the entries in off_diagonals
+    delay # Float64
+    observations # array
+    observation_time_points # array
+    observation_time_step # Integer
+    current_time # Integer
+    current_observation # Float64
+end
 
-Return the last multiple of `n` before x.
-
-# Examples
-
-```julia
-julia> prevmult(12,10)
-10.0
-
-julia> prevmult(29.2,4)
-28.0
-```
-"""
-prevmult(x,n) = floor(x / n) * n
-
-struct TimeConstructor{T<:Integer}
-    number_of_observations::T
-    observation_time_step::T
-    discretisation_time_step::T
-    discrete_delay::T
-    initial_number_of_states::T
-    number_of_hidden_states::T
-    total_number_of_states::T
+struct SolutionObject
+    at_time # 1-d function
+    tspan # tuple (t_start, t_end)
 end
 
 """
-Function which returns an instance of TimeConstructor, which is defines the numbers of
-states for various uses in the Kalman filter.
+Calculate the mean and standard deviation of the Normal approximation of the state space for a given
+time point in the Kalman filtering algorithm and return it as an array.
 """
-function time_constructor_function(
-    protein_at_observations::Matrix{<:AbstractFloat},
-    τ::AbstractFloat,
-    discretisation_time_step::Integer = 1,
+function distribution_prediction(
+    system_state,
+    observation_transform,
+    measurement_variance,
 )
-
-    number_of_observations = size(protein_at_observations, 1)
-    observation_time_step =
-        Int(protein_at_observations[2, 1] - protein_at_observations[1, 1])
-
-    discrete_delay = ceil(Int,τ / discretisation_time_step)
-    initial_number_of_states = discrete_delay + 1
-    number_of_hidden_states = Int64(round(observation_time_step / discretisation_time_step))
-
-    total_number_of_states =
-        initial_number_of_states + (number_of_observations - 1) * number_of_hidden_states
-
-    return TimeConstructor{Integer}(
-        number_of_observations,
-        observation_time_step,
-        discretisation_time_step,
-        discrete_delay,
-        initial_number_of_states,
-        number_of_hidden_states,
-        total_number_of_states,
-    )
-end
-
-"""
-Helper function to return the state space mean for a given (real valued) time between t-τ and t+Δobs,
-where t is the current number of states.
-"""
-function state_space_mean_indexer(
-    state_space_mean,
-    time,
-    current_number_of_states,
-    states
-)
-    array_index = length(state_space_mean) + min(0,floor(Int,(time-current_number_of_states)/states.observation_time_step))
-    return state_space_mean[array_index](time)
-end
-
-"""
-Helper function to return the state space variance for two given (real valued) times t₁ and t₂, between t-τ and t+Δobs,
-where t is the current number of states.
-"""
-function state_space_variance_indexer(
-    state_space_variance,
-    time_1,
-    time_2,
-    current_number_of_states,
-    states
-)
-
-    ref_point = min(current_number_of_states, prevmult(max(time_1,time_2),10))
-    array_index = size(state_space_variance,2) + min(0,floor(Int,(max(time_1,time_2)-current_number_of_states)/states.observation_time_step))
-    # println("ref: ", ref_point)
-    # println("arr: ", array_index)
-
-    if time_1 == time_2
-        position_index = states.discrete_delay + 1
-    elseif min(time_1,time_2) < ref_point # replace current_number_of_states with t_c
-        position_index = states.discrete_delay + 1 - ceil(Int,ref_point - min(time_1,time_2))
-    else
-        position_index = states.discrete_delay + 1 + ceil(Int,max(time_1,time_2) - ref_point)
-    end
-    # println("pos: ", position_index)
-
-    return state_space_variance[position_index,array_index](time_2)
-end
-
-
-"""
-Calculate the mean and variance of the Normal approximation of the state space for a given
-time point in the Kalman filtering algorithm and return it as a Normal distribution
-"""
-function distribution_prediction_at_given_time(
-    state_space_mean,
-    state_space_variance,
-    continuous_state_space_variance,
-    states::TimeConstructor,
-    given_time::Integer,
-    observation_transform::Matrix{<:AbstractFloat},
-    measurement_variance::AbstractFloat,
-)
-    mean_prediction = dot(observation_transform,
-        state_space_mean_indexer(
-            state_space_mean,
-            given_time-(states.discrete_delay+1),
-            given_time-(states.discrete_delay+1),
-            states)
-    )
-    
-    last_predicted_covariance_matrix = state_space_variance[
-        [given_time, states.total_number_of_states + given_time],
-        [given_time, states.total_number_of_states + given_time],
-    ]
+    mean_prediction = system_state.means[end].at_time(system_state.current_time)[2]
+    last_predicted_covariance_matrix = system_state.variances[end].at_time(system_state.current_time)
 
     variance_prediction =
         dot(
@@ -133,18 +34,20 @@ function distribution_prediction_at_given_time(
             last_predicted_covariance_matrix * observation_transform',
         ) + measurement_variance
 
-    return Normal(mean_prediction, sqrt(variance_prediction))
+    return mean_prediction, variance_prediction
 end
 
 """
-Calculate the current number of states for a given observation time
+Update the current time and observation of the system state
 """
-function calculate_current_number_of_states(
-    current_observation_time::AbstractFloat,
-    states::TimeConstructor
+function update_current_time_and_observation!(
+    system_state::SystemState
 )
-    return Int(round(current_observation_time / states.observation_time_step)) *
-           states.number_of_hidden_states + states.initial_number_of_states
+    observation_index = (system_state.current_time ÷ system_state.observation_time_step) + 1
+    system_state.current_observation = system_state.observations[observation_index]
+    system_state.current_time += system_state.observation_time_step
+
+    return system_state
 end
 
 """
@@ -169,15 +72,10 @@ copy numbers. This implements the filter described by Calderazzo et al., Bioinfo
 - `measurement_variance::AbstractFloat`: The variance in our measurement. This is given by ``Σ_ϵ`` in Calderazzo et. al. (2018).
 
 # Returns
-- `state_space_mean::Matrix{<:AbstractFloat}`: An N x 3 matrix, where N is the total number of states. The columns are time, mRNA
-    and protein respectively.
+- `system_state::SystemState`: 
 
-- `state_space_variance::Matrix{<:AbstractFloat}`: An 2N x 2N matrix where N is the total number of states. It is constructed as a 2 x 2 block
-    matrix, where the blocks give the covariance of (mRNA, mRNA), (mRNA, protein), (protein, mRNA), and (protein, protein) for all times (t,s) where
-    abs(t -s) <= τ, the transcriptional time delay.
-
-- `predicted_observation_distributions::Array{Normal{Float64}}`: An array of length N, whose entries are Normal distributions with mean and variance
-    equal to the state space mean and variance predictions for the corresponding time point.
+- `predicted_observation_distributions::Matrix{Float64}`: A matrix of size N x 2. The entries in the first column are the predicted state
+ space mean and the entries in the second column are the predicted state space variance for each observation.
 
 # Example
 ```jldoctest
@@ -189,14 +87,16 @@ julia> model_parameters = [100.0, 5.0, 0.1, 0.1, 1.0, 1.0, 15.0];
 
 julia> measurement_variance = 1000.0;
 
-julia> ss_mean, ss_var, _, distributions = kalman_filter(
+julia> system_state, distributions = kalman_filter(
            protein,
            model_parameters,
            measurement_variance
        );
 
-julia> distributions[1]
-Distributions.Normal{Float64}(μ=77.80895986786031, σ=93.7064351407417)
+julia> distributions[1,:]
+2-element Vector{Float64}:
+  77.80895986786031
+  8780.895986786032
 ```
 """
 function kalman_filter(
@@ -204,129 +104,101 @@ function kalman_filter(
     model_parameters::Vector{<:AbstractFloat},
     measurement_variance::AbstractFloat,
 )
-    τ = model_parameters[7]
     # F in the paper
     observation_transform = [0.0 1.0]
-    states = time_constructor_function(protein_at_observations, τ)
     # initialise state space and distribution predictions
-    state_space_mean, state_space_variance, continuous_state_space_variance, predicted_observation_distributions =
-    kalman_filter_state_space_initialisation(
+    system_state = kalman_filter_state_space_initialisation(
         protein_at_observations,
         model_parameters,
-        states,
         observation_transform,
         measurement_variance,
     )
 
     # loop through observations and at each observation apply the Kalman prediction step and then the update step
     for observation_index = 2:size(protein_at_observations, 1)
-        current_observation = protein_at_observations[observation_index, :]
-        state_space_mean, state_space_variance, continuous_state_space_variance = kalman_prediction_step!(
-            state_space_mean,
-            state_space_variance,
-            continuous_state_space_variance,
-            states,
-            current_observation,
+        system_state = kalman_prediction_step!(
+            system_state,
             model_parameters,
         )
-        current_number_of_states = calculate_current_number_of_states(
-            current_observation[1],
-            states
-        )
+
+        system_state = update_current_time_and_observation!(system_state)
+        
         # between the prediction and update steps we record the normal distributions for our likelihood
-        predicted_observation_distributions[observation_index] =
-            distribution_prediction_at_given_time(
-                state_space_mean,
-                state_space_variance,
-                continuous_state_space_variance,
-                states,
-                current_number_of_states,
+        predicted_observation_distributions[observation_index,:] .= distribution_prediction(
+                system_state,
                 observation_transform,
                 measurement_variance,
             )
-        state_space_mean, state_space_variance, continuous_state_space_variance = kalman_update_step!(
-            state_space_mean,
-            state_space_variance,
-            continuous_state_space_variance,
-            states,
-            current_observation,
+
+        system_state = kalman_update_step!(
+            system_state,
             measurement_variance,
             observation_transform,
         )
     end # for
-    return state_space_mean, state_space_variance, continuous_state_space_variance, predicted_observation_distributions
+    return system_state, predicted_observation_distributions
 end # function
 
 """
 Initialse the state space mean for a given set of time states and the ODE system's steady state
 """
-function initialise_state_space_mean(states::TimeConstructor, steady_state,τ)
+function initialise_state_space_mean(steady_state,τ)
 
     function initial_mean!(du,u,p,t)
         du[1] = 0
         du[2] = 0
     end
-    condition(u,t,integrator) = t==0
-    affect!(integrator) = integrator.u .-= u0
-    cb = DiscreteCallback(condition,affect!)
     u0 = steady_state
-    tspan = (-1.0,1.0) # arbitrary, just needs to cross 0
+    tspan = (-τ, 0.)
     prob = ODEProblem(initial_mean!,u0,tspan)
-    sol = solve(prob,callback=cb,tstops=[0])
-
-    total_number_of_solution_objects = ceil(Int,τ/states.observation_time_step) + ceil(Int,states.observation_time_step/τ)
-
-    return fill(sol,total_number_of_solution_objects)
+    sol = solve(prob)
+    return [SolutionObject(sol, tspan)] # mean is an array of solution objects
 end
 
 """
 Initialse the state space variance for a given set of time states and the ODE system's steady state
 """
 function initialise_state_space_variance(
-    states::TimeConstructor,
     steady_state,
     τ;
-    mRNA_scaling::AbstractFloat = 20.0,
-    protein_scaling::AbstractFloat = 100.0,
+    mRNA_scaling = 20.0,
+    protein_scaling = 100.0,
 )
-
-    state_space_variance = zeros(
-        2*states.total_number_of_states,
-        2*states.total_number_of_states,
-    )
-
-    diag_indices = diagind(state_space_variance)
-    mRNA_indices = 1:states.initial_number_of_states
-    protein_indices =
-        1+states.total_number_of_states:1+states.total_number_of_states+states.initial_number_of_states
-
-    state_space_variance[diag_indices[mRNA_indices]] .= steady_state[1] * mRNA_scaling
-    state_space_variance[diag_indices[protein_indices]] .= steady_state[2] * protein_scaling
-
     function initial_variance!(du,u,p,t)
         du = 0
     end
-    condition(u,t,integrator) = t==0
-    affect!(integrator) = integrator.u .-= u0
-    cb = DiscreteCallback(condition,affect!)
     u0 = [steady_state[1]*mRNA_scaling 0.0; 0.0 steady_state[2]*protein_scaling]
-    tspan = (-1.0,1.0) # arbitrary, just needs to cross 0
+    tspan = (-τ,0.0)
     prob = ODEProblem(initial_variance!,u0,tspan)
-    sol = solve(prob,callback=cb,tstops=[0])
+    sol = solve(prob)
 
-    continuous_state_space_variance = Matrix(
-        undef,
-        states.discrete_delay+states.observation_time_step+1,
-        ceil(Int,τ/states.observation_time_step) + ceil(Int,states.observation_time_step/τ)
-    )
+    return [SolutionObject(sol, tspan)] # variance is an array of solution objects
+end
 
-    for i in 1:size(continuous_state_space_variance)[1]
-        for j in 1:size(continuous_state_space_variance)[2]
-            continuous_state_space_variance[i,j] = sol
-        end
+"""
+Initialse the off diagonals for a given set of time states and the ODE system's steady state
+"""
+function initialise_off_diagonals(
+    τ,
+    number_of_offdiagonal_timepoints;
+)
+    off_diagonals = CircularBuffer{Array}(number_of_offdiagonal_timepoints)
+    off_diagonal_timepoints = CircularBuffer(number_of_offdiagonal_timepoints)
+    for timepoint in LinRange(-τ, -1, number_of_offdiagonal_timepoints)
+        push!(off_diagonal_timepoints, timepoint)
     end
 
-    return state_space_variance, continuous_state_space_variance
+    function initial_off_diagonal!(du,u,p,t)
+        du = 0
+    end
+    u0 = [0.0 0.0; 0.0 0.0]
+    tspan = (-τ,0.0)
+    prob = ODEProblem(initial_off_diagonal!,u0,tspan)
+    sol = solve(prob)
+
+    fill!(off_diagonals,[SolutionObject(sol, tspan)])
+
+    return off_diagonals, off_diagonal_timepoints
 end
 
 """
@@ -336,97 +208,74 @@ and then updates them with kalman_update_step.
 
 # Arguments
 
-- `protein_at_observations::AbstractArray{<:Real}`: Observed protein. The dimension is n x 2, where n is the number of observation time points.
+- `protein_at_observations`: Observed protein. The dimension is n x 2, where n is the number of observation time points.
     The first column is the time, and the second column is the observed protein copy number at
     that time. The filter assumes that observations are generated with a fixed, regular time interval.
 
-- `model_parameters::ModelParameters`: A ModelParameters object containing the model parameters in the following order:
+- `model_parameters`: An array containing the model parameters in the following order:
     repression threshold, hill coefficient, mRNA degradation rate,protein degradation rate, basal transcription rate,
     translation rate, time delay.
-
-- `states::TimeConstructor`: A TimeConstructor whose fields define various values relevant to number of states, e.g. discrete_delay,
-    total_number_of_states, etc.
 
 - `observation_transform`: A 1 x 2 matrix corresponding to the transformation from observed data to molecule number, for mRNA and protein
     respectively.
 
-- `measurement_variance::Real`: The variance in our measurement. This is given by Sigma epsilon in Calderazzo et. al. (2018).
+- `measurement_variance`: The variance in our measurement. This is given by Sigma epsilon in Calderazzo et. al. (2018).
 
 # Returns
-- `state_space_mean::Matrix{<:AbstractFloat}`: An N x 3 matrix, where N is the total number of states. The columns are time, mRNA
-    and protein respectively.
+- `system_state::SystemState`:
 
-- `state_space_variance::Matrix{<:AbstractFloat}`: An 2N x 2N matrix where N is the total number of states. It is constructed as a 2 x 2 block
-    matrix, where the blocks give the covariance of (mRNA, mRNA), (mRNA, protein), (protein, mRNA), and (protein, protein) for all times (t,s) where
-    abs(t -s) <= τ, the transcriptional time delay.
-
-- `predicted_observation_distributions::Array{Normal{Float64}}`: An array of length n, whose entries are Normal distributions with mean and variance
-    equal to the state space mean and variance predictions for the corresponding time point.
+- `predicted_observation_distributions::Matrix{Float64}`: A matrix of size N x 2. The entries in the first column are the predicted state
+ space mean and the entries in the second column are the predicted state space variance for each observation.
 """
 function kalman_filter_state_space_initialisation(
-    protein_at_observations::Matrix{<:AbstractFloat},
-    model_parameters::Vector{<:AbstractFloat},
-    states::TimeConstructor,
+    protein_at_observations,
+    model_parameters,
     observation_transform,
-    measurement_variance::AbstractFloat = 10.0,
+    measurement_variance,
 )
     τ = model_parameters[7]
     steady_state = calculate_steady_state_of_ode(model_parameters)
 
-    # construct state space
-    state_space_mean = initialise_state_space_mean(states, steady_state, τ)
-    state_space_variance, continuous_state_space_variance = initialise_state_space_variance(states, steady_state, τ)
+    # construct system state space
+    means = initialise_state_space_mean(steady_state, τ)
+    variances = initialise_state_space_variance(steady_state, τ)
+    # TODO - this should somehow be an input in the main function: number_of_off_diagonal_timepoints = τ
+    off_diagonals, off_diagonal_timepoints = initialise_off_diagonals(τ, floor(Int, τ))
+
+    observation_time_step = Int(protein_at_observations[2,1] - protein_at_observations[1,1])
+    current_time = Int(protein_at_observations[1,1])
+    current_observation = protein_at_observations[1,2]
+
+    system_state = SystemState(
+        means,
+        variances,
+        off_diagonals,
+        off_diagonal_timepoints,
+        τ,
+        protein_at_observations[:,2],
+        protein_at_observations[:,1],
+        observation_time_step,
+        current_time,
+        current_observation
+    )
 
     # initialise distributions
     predicted_observation_distributions =
-        fill(Normal(),states.number_of_observations)
-    predicted_observation_distributions[1] = distribution_prediction_at_given_time(
-        state_space_mean,
-        state_space_variance,
-        continuous_state_space_variance,
-        states,
-        states.initial_number_of_states,
+        zeros(length(system_state.observations), 2)
+    predicted_observation_distributions[1,:] .= distribution_prediction(
+        system_state,
         observation_transform,
         measurement_variance,
     )
-
-    println("Continuous: ", continuous_state_space_variance[states.discrete_delay+1,end](0))
-    println("Discrete: ", state_space_variance[
-        [
-            30,
-            states.total_number_of_states + 30,
-        ],
-        [
-            30,
-            states.total_number_of_states + 30,
-        ]
-    ])
 
     # update the past ("negative time")
-    current_observation = protein_at_observations[1, :]
-    state_space_mean, state_space_variance, continuous_state_space_variance = kalman_update_step!(
-        state_space_mean,
-        state_space_variance,
-        continuous_state_space_variance,
-        states,
-        current_observation,
+    system_state = kalman_update_step!(
+        system_state,
         measurement_variance,
         observation_transform,
     )
 
-    println("Continuous: ", continuous_state_space_variance[states.discrete_delay+1,end](0))
-    println("Discrete: ", state_space_variance[
-        [
-            30,
-            states.total_number_of_states + 30,
-        ],
-        [
-            30,
-            states.total_number_of_states + 30,
-        ]
-    ])
-
-    return state_space_mean, state_space_variance, continuous_state_space_variance, predicted_observation_distributions
+    return system_state, predicted_observation_distributions
 end # function
 
 function construct_instant_jacobian(model_parameters)
@@ -443,22 +292,62 @@ function construct_delayed_jacobian(model_parameters, past_protein)
     ]
 end
 
+function get_mean_at_time(t, system_state)
+    for solution_object in system_state.means
+        start_time = solution_object.tspan[1]
+        end_time = solution_object.tspan[end]
+
+        if start_time < t <= end_time
+            return solution_object.at_time(t)
+        end 
+    end
+end
+
+function get_variance_at_time(t, system_state)
+    for solution_object in system_state.variances
+        start_time = solution_object.tspan[1]
+        end_time = solution_object.tspan[end]
+
+        if start_time < t <= end_time
+            return solution_object.at_time(t)
+        end 
+    end
+end
+
+function get_specific_off_diagonal_value_at_time(t, off_diagonal_entry)
+    return off_diagonal_entry.at_time(t)
+end
+
+function get_off_diagonal_at_time(time_1, time_2, system_state)
+    @assert time_1 < time_2 "First time must be less than second time"
+    
+    past_values = fill(zeros(2,2), length(system_state.off_diagonal_timepoints))
+
+    for (off_diagonal_index, off_diagonal_entry) in enumerate(system_state.off_diagonals)
+        this_value = get_specific_off_diagonal_value_at_time(time_2, off_diagonal_entry)
+        past_values[off_diagonal_index] = this_value
+    end
+
+    return LinearInterpolation(
+        system_state.off_diagonal_timepoints,
+        past_values
+        )(time_1)
+end
+
 """
 Predict state space mean to the next observation time index
 """
 function predict_state_space_mean!(
-    state_space_mean,
-    current_number_of_states,
+    system_state,
     model_parameters,
-    states
     )
 
     function state_space_mean_RHS(du,u,h,p,t)
-        past_index = t - p[7]
-        if past_index >= tspan[1] # history function in case τ < number_of_hidden_states
-            past_protein = h(p,past_index;idxs=2)
+        past_time = t - system_state.delay # p[7]
+        if past_time >= tspan[1] # history function in case τ < number_of_hidden_states
+            past_protein = h(p,past_time;idxs=2)
         else # otherwise pre defined indexer
-            past_protein = state_space_mean_indexer(state_space_mean, past_index,current_number_of_states-(states.discrete_delay+1)-states.number_of_hidden_states,states)[2]
+            past_protein = get_mean_at_time(past_time, system_state)[2]
         end
 
         du[1] = -p[3]*u[1] + p[5]*hill_function(past_protein, p[1], p[2])
@@ -466,18 +355,21 @@ function predict_state_space_mean!(
     end
 
     h(p,t;idxs::Int) = 1.0
-    tspan = (Float64(current_number_of_states),current_number_of_states+states.number_of_hidden_states) .- (states.discrete_delay+1)
-    mean_prob = DDEProblem(state_space_mean_RHS,
-                        state_space_mean_indexer(state_space_mean,Float64(current_number_of_states)-(states.discrete_delay+1),current_number_of_states-(states.discrete_delay+1),states),#current_mean
-                        h,
-                        tspan,
-                        model_parameters; constant_lags=[model_parameters[7]])
+    tspan = (system_state.current_time, system_state.current_time + system_state.observation_time_step)
+    mean_prob = DDEProblem(
+        state_space_mean_RHS,
+        get_mean_at_time(system_state.current_time, system_state),
+        h,
+        tspan,
+        model_parameters; constant_lags=[system_state.delay]
+    )
     mean_solution = solve(mean_prob,MethodOfSteps(Euler()),dt=1.,adaptive=false,saveat=1.,dtmin=1.,dtmax=1.)
-    state_space_mean = [state_space_mean[2:end]...,mean_solution]
-
-    return state_space_mean
+    mean_solution_object = SolutionObject(mean_solution,tspan)
+    push!(system_state.means, mean_solution_object)
+    return system_state
 end
 
+# TODO
 function predict_variance_first_step!(
     initial_condition_state,
     current_number_of_states,
@@ -654,22 +546,19 @@ There are three separate steps in the variance prediction:
     (3) Integrate P(t,t) to P(t,t+nΔt) for t in t:t+nΔt-1. (horizontal/vertical)
 """
 function predict_state_space_variance!(
-    state_space_mean,
-    state_space_variance,
-    continuous_state_space_variance,
-    current_number_of_states,
+    system_state,
     model_parameters,
-    states,
     instant_jacobian
     )
     
     function state_space_variance_RHS(du,u,p,t)
-        past_index = Int(t) - states.discrete_delay
-        past_protein = state_space_mean_indexer(state_space_mean, past_index-(states.discrete_delay+1),current_number_of_states-(states.discrete_delay+1),states)[2]
-        current_mean = state_space_mean_indexer(state_space_mean, t-(states.discrete_delay+1),current_number_of_states-(states.discrete_delay+1),states)
+        past_time = t - system_state.delay
+        past_protein = get_mean_at_time(past_time, system_state)[2]
+        current_mean = get_mean_at_time(t, system_state)
 
-        past_to_now_diagonal_variance = state_space_variance[[past_index,states.total_number_of_states+past_index],
-                                                             [Int(t),states.total_number_of_states+Int(t)]]
+        # P(t-τ, t)
+        past_to_now_diagonal_variance = get_off_diagonal_at_time(past_time, t, system_state)
+        
         delayed_jacobian = construct_delayed_jacobian(model_parameters, past_protein)
 
         variance_of_noise = [p[3]*current_mean[1]+p[5]*hill_function(past_protein, p[1], p[2]) 0.0;
@@ -682,114 +571,44 @@ function predict_state_space_variance!(
     end # function
 
     function off_diagonal_state_space_variance_RHS(du,u,p,diag_t) # p is the intermediate time index s
-        past_index = Int(diag_t) - states.discrete_delay # t - τ
-        past_protein = state_space_mean_indexer(state_space_mean, past_index-(states.discrete_delay+1),current_number_of_states-(states.discrete_delay+1),states)[2]
+        past_time = diag_t - system_state.delay # t - τ
+        past_protein = get_mean_at_time(past_time, system_state)[2]
+        
         delayed_jacobian = construct_delayed_jacobian(model_parameters, past_protein)
 
-        if diag_t < 1 || past_index < 1
+        if diag_t < 1 || past_time < 1
             covariance_matrix_intermediate_to_past = zeros(2,2)
         else
-            covariance_matrix_intermediate_to_past = state_space_variance[[p,
-                                                                           states.total_number_of_states+p],
-                                                                          [past_index,
-                                                                           states.total_number_of_states+past_index]]
+            # P(s, t-τ)
+            covariance_matrix_intermediate_to_past = get_off_diagonal_at_time(p, past_time, system_state)
        end
         du .= u*instant_jacobian' +
              covariance_matrix_intermediate_to_past*delayed_jacobian'
 
     end # function
 
-    ## continuous RHS functions
-    function continuous_state_space_variance_RHS(du,u,p,t)
-        past_index = Int(t) - states.discrete_delay
-        past_protein = state_space_mean_indexer(state_space_mean, past_index-(states.discrete_delay+1),current_number_of_states-(states.discrete_delay+1),states)[2]
-        current_mean = state_space_mean_indexer(state_space_mean, t-(states.discrete_delay+1),current_number_of_states-(states.discrete_delay+1),states)
+    # TODO
+    # implement a while loop here
+    current_time = copy(system_state.current_time)
+    last_off_diagonal_timepoint = system_state.off_diagonal_timepoints[end]
+    while current_time < next_observation_time
+        next_end_time = min(next_observation_time, last_off_diagonal_timepoint + system_state.delay)
 
-        past_to_now_diagonal_variance = state_space_variance_indexer(
-            continuous_state_space_variance,
-            past_index,#-(states.discrete_delay+1),# not sure about these times
-            t,#-(states.discrete_delay+1),
-            current_number_of_states,#-(states.discrete_delay+1),
-            states
+        propagate_existing_off_diagonals(
+            system_state
         )
-
-        past_to_now_diagonal_variance_test = state_space_variance[[past_index,states.total_number_of_states+past_index],
-                                                             [Int(t),states.total_number_of_states+Int(t)]]
-
-        if Int(t)==30
-            println("In RHS")
-            println(past_to_now_diagonal_variance)
-            println(past_to_now_diagonal_variance_test)
-        end
-        delayed_jacobian = construct_delayed_jacobian(model_parameters, past_protein)
-
-        variance_of_noise = [p[3]*current_mean[1]+p[5]*hill_function(past_protein, p[1], p[2]) 0.0;
-                             0.0 p[6]*current_mean[1]+p[4]*current_mean[2]]
-
-        du .= instant_jacobian*u + u*instant_jacobian' +
-             delayed_jacobian*past_to_now_diagonal_variance +
-             past_to_now_diagonal_variance'*delayed_jacobian' +
-             variance_of_noise
-    end # function
-
-    function continuous_off_diagonal_state_space_variance_RHS(du,u,p,diag_t) # p is the intermediate time index s
-        past_index = Int(diag_t) - states.discrete_delay # t - τ
-        past_protein = state_space_mean_indexer(state_space_mean, past_index-(states.discrete_delay+1),current_number_of_states-(states.discrete_delay+1),states)[2]
-
-        delayed_jacobian = construct_delayed_jacobian(model_parameters, past_protein)
-
-        if diag_t < 1 || past_index < 1
-            covariance_matrix_intermediate_to_past = zeros(2,2)
-        else
-            covariance_matrix_intermediate_to_past = state_space_variance_indexer(
-                continuous_state_space_variance,
-                past_index-(states.discrete_delay+1),# not sure about these times
-                p-(states.discrete_delay+1),
-                current_number_of_states-(states.discrete_delay+1),
-                states
-            )
-       end
-        du .= u*instant_jacobian' +
-             covariance_matrix_intermediate_to_past*delayed_jacobian'
-
-    end # function
+        propagate_variance(
+            system_state
+        )
+        propagate_new_off_diagonals(
+            system_state
+        )
+        current_time = next_end_time
+    end
 
     # in the case of τ < observation_time_step, we have to do the below procedure multiple times (ceil(observation/τ) times)
     # since otherwise certain P(t-τ,s) values will not exist #TODO bad explanation
-    initial_condition_times = Int.([current_number_of_states + states.discrete_delay*x for x in 0:ceil(states.number_of_hidden_states/states.discrete_delay)-1])
-    for initial_condition_state in initial_condition_times
-        # (1) Integrate P(t,s) to P(t+nΔt,s) for s = t-τ:t.
-        predict_variance_first_step!(
-            initial_condition_state,
-            current_number_of_states,
-            off_diagonal_state_space_variance_RHS,
-            continuous_off_diagonal_state_space_variance_RHS,
-            state_space_variance,
-            continuous_state_space_variance,
-            states
-        )
-        # (2) Integrate P(t,t) to P(t+nΔt,t+nΔt).
-        predict_variance_second_step!(
-            initial_condition_state,
-            current_number_of_states,
-            state_space_variance_RHS,
-            continuous_state_space_variance_RHS,
-            state_space_variance,
-            continuous_state_space_variance,
-            model_parameters,
-            states
-        )
-        # (3) Integrate P(t,t) to P(t,t+nΔt) for t in t:t+nΔt-1.
-        predict_variance_third_step!(
-            initial_condition_state,
-            current_number_of_states,
-            off_diagonal_state_space_variance_RHS,
-            continuous_off_diagonal_state_space_variance_RHS,
-            state_space_variance,
-            continuous_state_space_variance,
-            states
-        )
-    end # initial_condition_times for
+    # initial_condition_times = Int.([current_number_of_states + states.discrete_delay*x for x in 0:ceil(states.number_of_hidden_states/states.discrete_delay)-1])
 end
 
 """
@@ -800,129 +619,111 @@ approximated using a forward Euler scheme.
 
 # Arguments
 
-- `state_space_mean::Matrix{<:AbstractFloat}`: An N x 3 matrix, where N is the total number of states. The columns are time, mRNA
-    and protein respectively.
+- `system_state::SystemState`:
 
-- `state_space_variance::Matrix{<:AbstractFloat}`: An 2N x 2N matrix where N is the total number of states. It is constructed as a 2 x 2 block
-    matrix, where the blocks give the covariance of (mRNA, mRNA), (mRNA, protein), (protein, mRNA), and (protein, protein) for all times (t,s) where
-    abs(t -s) <= τ, the transcriptional time delay.
-
-- `states::TimeConstructor`: A TimeConstructor whose fields define various values relevant to number of states, e.g. discrete_delay,
-    total_number_of_states, etc.
-
-- `current_observation::Vector{<:AbstractFloat}`: The current time point and protein observation which acts as the initial condition for the
-    prediction.
-
-- `model_parameters::ModelParameters`: A ModelParameters object containing the model parameters in the following order:
+- `model_parameters`: An array containing the model parameters in the following order:
     repression threshold, hill coefficient, mRNA degradation rate,protein degradation rate, basal transcription rate,
     translation rate, time delay.
 
 # Returns
-- `state_space_mean::Matrix{<:AbstractFloat}`: An N x 3 matrix, where N is the total number of states. The columns are time, mRNA
-    and protein respectively. With each prediction new values are saved to the relevant entries in the matrix.
 
-- `state_space_variance::Matrix{<:AbstractFloat}`: An 2N x 2N matrix where N is the total number of states. It is constructed as a 2 x 2 block
-    matrix, where the blocks give the covariance of (mRNA, mRNA), (mRNA, protein), (protein, mRNA), and (protein, protein) for all times (t,s) where
-    abs(t -s) <= τ, the transcriptional time delay. With each prediction new values are saved to the relevant entries in the matrix.
+- `system_state::SystemState`
 """
 function kalman_prediction_step!(
-    state_space_mean,
-    state_space_variance,
-    continuous_state_space_variance,
-    states::TimeConstructor,
-    current_observation::Vector{<:AbstractFloat},
-    model_parameters::Vector{<:AbstractFloat},
+    system_state,
+    model_parameters,
 )
-    # this is the number of states at t, i.e. before predicting towards t+observation_time_step
-    current_number_of_states = calculate_current_number_of_states(
-        current_observation[1] - states.number_of_hidden_states,
-        states
-    )
-
     instant_jacobian = construct_instant_jacobian(model_parameters)
 
-    state_space_mean = predict_state_space_mean!(
-        state_space_mean,
-        current_number_of_states,
+    system_state = predict_state_space_mean!(
+        system_state,
         model_parameters,
-        states
         )
 
     predict_state_space_variance!(
-        state_space_mean,
-        state_space_variance,
-        continuous_state_space_variance,
-        current_number_of_states,
+        system_state,
         model_parameters,
-        states,
         instant_jacobian
         )
 
-    println("Prediction step: ")
-    println("Diagonal: ")
-    println(state_space_variance[
-        [
-            current_number_of_states+9,
-            states.total_number_of_states + current_number_of_states+9,
-        ],
-        [
-            current_number_of_states+9,
-            states.total_number_of_states + current_number_of_states+9,
-        ]
-    ])
-    println(continuous_state_space_variance[states.discrete_delay+1,end](current_number_of_states+9))
-    println()
-    println("Off diagonal: ")
-    println(state_space_variance[
-        [
-            current_number_of_states+9,
-            states.total_number_of_states + current_number_of_states+9,
-        ],
-        [
-            current_number_of_states+10,
-            states.total_number_of_states + current_number_of_states+10,
-        ]
-    ])
-    println(continuous_state_space_variance[end-1,end](current_number_of_states+10))
-    println()
-
-    return state_space_mean, state_space_variance, continuous_state_space_variance
+    return system_state
 end # function
 
 function update_mean!(
-    state_space_mean,
-    current_number_of_states,
-    states,
+    system_state,
     adaptation_coefficient,
-    current_observation,
     observation_transform,
 )
+    most_recent_mean = get_mean_at_time(system_state.current_time, system_state)
 
-    predicted_final_state_space_mean = state_space_mean_indexer(
-        state_space_mean,
-        current_number_of_states-(states.discrete_delay+1),
-        current_number_of_states-(states.discrete_delay+1),
-        states
+    function update_addition_function(t)
+        adaptation_coefficient(t)*( system_state.current_observation -
+            dot(observation_transform, most_recent_mean) )
+    end
+    
+    update_addition_sol_object = SolutionObject(
+        update_addition_function,
+        (0,10) # arbitrary span
     )
 
-    adaptation_coefficient_mRNA = linear_interpolation(
-        current_observation[1]-(states.discrete_delay):current_observation[1],
-        adaptation_coefficient[1:states.discrete_delay+1]
-        )
-    adaptation_coefficient_protein = linear_interpolation(
-        current_observation[1]-(states.discrete_delay):current_observation[1],
-        adaptation_coefficient[states.discrete_delay+2:end]
-        )
+    system_state.means = system_state.means .+ update_addition_sol_object
+    
+    return system_state
+end
 
-    function update_addition(t)
-        [adaptation_coefficient_mRNA(t),
-         adaptation_coefficient_protein(t)] * ( current_observation[2] -
-         dot(observation_transform, predicted_final_state_space_mean) )
+function update_variance!(
+    system_state,
+    observation_transform,
+    helper_inverse
+)
+    f = get_most_recent_offdiagonal_as_function(system_state)
+
+    function update_addition_function(t)
+        return SolutionObject(
+            -f(t)*observation_transform'*observation_transform*f(t)'*helper_inverse,
+            (0,10) # arbitrary span
+        )
     end
 
-    updated_state_space_mean = state_space_mean .+ update_addition
-    
-    return updated_state_space_mean
+    system_state.variances = system_state.variances .+ update_addition_function
+
+    return system_state
+end
+
+# TODO
+function update_off_diagonals!(
+    system_state,
+    observation_transform,
+    helper_inverse,
+)
+    for off_diagonal_entry in system_state.off_diagonals
+
+        f = get_most_recent_offdiagonal_as_function(system_state)
+
+        function update_addition_function(t)
+            # TODO -- replace on of the t's below with an s, how do we get the right value?
+            # return negative part
+            return -f(t)*observation_transform'*observation_transform*f(t)'*helper_inverse
+        end
+
+        system_state.variances = system_state.variances .+ update_addition_function
+
+    end
+    return system_state
+end
+
+function get_most_recent_offdiagonal_as_function(system_state)
+    most_recent_off_diagonals = fill(zeros(2,2), length(system_state.off_diagonal_timepoints))
+
+    for (off_diagonal_index, off_diagonal_entry) in enumerate(system_state.off_diagonals)
+        most_recent_off_diagonals[off_diagonal_index] = off_diagonal_entry[end].at_time(system_state.current_time)
+    end
+    push!(most_recent_off_diagonals, system_state.variances[end].at_time(system_state.current_time))
+
+    return LinearInterpolation(
+        [system_state.off_diagonal_timepoints...,system_state.current_time],
+        most_recent_off_diagonals
+        )
 end
 
 function calculate_helper_inverse(
@@ -930,165 +731,12 @@ function calculate_helper_inverse(
     predicted_final_covariance_matrix,
     measurement_variance,
 )
-
     1.0 / (
         dot(
             observation_transform,
             predicted_final_covariance_matrix * observation_transform',
         ) + measurement_variance
     )
-
-end
-
-function calculate_adaptation_coefficient(cov_matrix, observation_transform, helper_inverse)
-    sum(dot.(cov_matrix, observation_transform), dims = 2) * helper_inverse
-end
-
-function adaptation_coefficient_function(
-    continuous_state_space_variance,
-    current_number_of_states,
-    t,
-    s,
-    observation_transform,
-    helper_inverse,
-    states
-)
-    state_space_variance_indexer(
-        continuous_state_space_variance,
-        t,
-        s,
-        current_number_of_states,
-        states
-    )*observation_transform'*helper_inverse
-end
-
-function calculate_shortened_covariance_matrix(
-    state_space_variance,
-    current_number_of_states,
-    states::TimeConstructor,
-)
-
-    mRNA_indices_to_keep =
-        (current_number_of_states-states.discrete_delay):(current_number_of_states)
-    protein_indices_to_keep =
-        (states.total_number_of_states+current_number_of_states-states.discrete_delay):(states.total_number_of_states+current_number_of_states)
-    all_indices_up_to_delay = vcat(mRNA_indices_to_keep, protein_indices_to_keep)
-
-    return state_space_variance[all_indices_up_to_delay, all_indices_up_to_delay],
-    all_indices_up_to_delay
-end
-
-"""
-Return the covariance matrix at the current (last predicted) number of states
-"""
-function calculate_final_covariance_matrix(
-    state_space_variance,
-    continuous_state_space_variance,
-    current_number_of_states,
-    states,
-)
-    return state_space_variance[
-        [
-            current_number_of_states,
-            states.total_number_of_states + current_number_of_states,
-        ],
-        [
-            current_number_of_states,
-            states.total_number_of_states + current_number_of_states,
-        ],
-    ], continuous_state_space_variance[states.discrete_delay+1,end](
-        current_number_of_states-(states.discrete_delay+1))
-end
-
-function update_variance!(
-    state_space_variance,
-    continuous_state_space_variance,
-    current_number_of_states,
-    shortened_covariance_matrix,
-    all_indices_up_to_delay,
-    states,
-    adaptation_coefficient,
-    observation_transform,
-    helper_inverse
-)
-
-    updated_shortened_covariance_matrix = (
-        shortened_covariance_matrix -
-        adaptation_coefficient *
-        observation_transform *
-        shortened_covariance_matrix[[states.discrete_delay + 1, end], :]
-    )
-
-    println((adaptation_coefficient *
-    observation_transform *
-    shortened_covariance_matrix[[states.discrete_delay + 1, end], :])[[states.discrete_delay + 1, end], [states.discrete_delay + 1, end]])
-    println()
-
-    idx = diagind(updated_shortened_covariance_matrix)
-    updated_shortened_covariance_matrix[idx] = max.(updated_shortened_covariance_matrix[idx], 0.0)
-
-    # Fill in updated values
-    state_space_variance[all_indices_up_to_delay, all_indices_up_to_delay] =
-        updated_shortened_covariance_matrix
-
-    
-    # continuous variance part
-    function diagonal_variance_update_addition(t)
-        # return negative part 
-        return -state_space_variance_indexer(
-            continuous_state_space_variance,
-            t,
-            t,
-            current_number_of_states-(states.discrete_delay+1),
-            states
-        )*observation_transform'*
-        helper_inverse*
-        observation_transform*state_space_variance_indexer(
-            continuous_state_space_variance,
-            t,
-            t,# need to change this 
-            current_number_of_states-(states.discrete_delay+1),
-            states
-        )#shortened_covariance_matrix[[states.discrete_delay + 1, end], [states.discrete_delay + 1, end]] # TODO need to fix this last part, P_t,t-τ:t
-    end
-
-    updated_continuous_state_space_variance = copy(continuous_state_space_variance)# .+ variance_update_addition
-    updated_continuous_state_space_variance[states.discrete_delay+1,:] = updated_continuous_state_space_variance[states.discrete_delay+1,:] .+ diagonal_variance_update_addition
-
-    if current_number_of_states-(states.discrete_delay+1) > 0
-        for (array_index, time_index) in enumerate(current_number_of_states-(states.discrete_delay+1)-(states.discrete_delay+1):current_number_of_states-(states.discrete_delay+1))
-            function variance_update_addition(t)
-                # P(s,T)
-                variance_s = state_space_variance_indexer(
-                    continuous_state_space_variance,
-                    t,
-                    time_index,#or something similar / shifted
-                    current_number_of_states-(states.discrete_delay+1),
-                    states
-                )
-                # P(T,t)
-                variance_t = state_space_variance_indexer(
-                    continuous_state_space_variance,
-                    t,
-                    time_index,#or something similar / shifted
-                    current_number_of_states-(states.discrete_delay+1),
-                    states
-                )
-                return helper_inverse*variance_s*observation_transform'*
-                    observation_transform*variance_t'#shortened_covariance_matrix[[states.discrete_delay + 1, end], [states.discrete_delay + 1, end]] # TODO need to fix this last part, P_t,t-τ:t
-            end
-            # println(variance_update_addition(2))
-
-            # currently commented out because this takes a really long time??
-            # println(updated_continuous_state_space_variance[array_index,end](current_number_of_states+1))
-            for pos_index in 1:last(size(updated_continuous_state_space_variance))
-                updated_continuous_state_space_variance[array_index,pos_index] = updated_continuous_state_space_variance[array_index,pos_index] + variance_update_addition
-            end
-            # println(updated_continuous_state_space_variance[array_index,end](current_number_of_states+1))
-        end
-    end
-
-    return state_space_variance, updated_continuous_state_space_variance
 end
 
 """
@@ -1098,121 +746,55 @@ This assumes that the observations are collected at fixed time intervals.
 
 # Arguments
 
-- `state_space_mean::Matrix{<:AbstractFloat}`: An N x 3 matrix, where N is the total number of states. The columns are time, mRNA
-    and protein respectively.
+- `system_state::SystemState`
 
-- `state_space_variance::Matrix{<:AbstractFloat}`: An 2N x 2N matrix where N is the total number of states. It is constructed as a 2 x 2 block
-    matrix, where the blocks give the covariance of (mRNA, mRNA), (mRNA, protein), (protein, mRNA), and (protein, protein) for all times (t,s) where
-    abs(t -s) <= τ, the transcriptional time delay.
+- `measurement_variance`: The variance which defines the measurement error, it is ``Σ_ϵ`` in the equation ``y = Fx + Σ_ϵ``.
 
-- `states::TimeConstructor`: A TimeConstructor whose fields define various values relevant to number of states, e.g. discrete_delay,
-    total_number_of_states, etc.
-
-- `current_observation::Vector{<:AbstractFloat}`: The current time point and protein observation which acts as the initial condition for the
-    prediction.
-
-- `τ::Real`: The time delay parameter, model_parameters[7].
-
-- `measurement_variance::Real`: The variance which defines the measurement error, it is ``Σ_ϵ`` in the equation ``y = Fx + Σ_ϵ``.
+- `observation_transform`: A 1 x 2 matrix corresponding to the transformation from observed data to molecule number, for mRNA and protein
+respectively.
 
 # Returns
 
-- `state_space_mean::Matrix{<:AbstractFloat}`: An N x 3 matrix, where N is the total number of states. The columns are time, mRNA
-    and protein respectively. At each update step the relevant entries in the matrix are updated according to the update defined in
-    Calderazzo et al., Bioinformatics (2018).
-
-- `state_space_variance::Matrix{<:AbstractFloat}`: An 2N x 2N matrix where N is the total number of states. It is constructed as a 2 x 2 block
-    matrix, where the blocks give the covariance of (mRNA, mRNA), (mRNA, protein), (protein, mRNA), and (protein, protein) for all times (t,s) where
-    abs(t -s) <= τ, the transcriptional time delay. At each update step the relevant entries in the matrix are updated according to the update defined in
-    Calderazzo et al., Bioinformatics (2018).
-
+- `system_state::SystemState`
 """
 function kalman_update_step!(
-    state_space_mean,
-    state_space_variance,
-    continuous_state_space_variance,
-    states::TimeConstructor,
-    current_observation::Vector{<:AbstractFloat},
-    measurement_variance::AbstractFloat,
+    system_state,
+    measurement_variance,
     observation_transform,
 )
-
-    current_number_of_states =
-        calculate_current_number_of_states(current_observation[1], states)
-
-    # extract covariance matrix up to delay and indices
-    # corresponds to P(t+Deltat-delay:t+deltat,t+Deltat-delay:t+deltat)
-    shortened_covariance_matrix, all_indices_up_to_delay =
-        calculate_shortened_covariance_matrix(
-            state_space_variance,
-            current_number_of_states,
-            states,
-        )
-
     # This is P(t+Deltat,t+Deltat) in the paper
-    predicted_final_covariance_matrix, predicted_final_continuous_covariance_matrix = calculate_final_covariance_matrix(
-        state_space_variance,
-        continuous_state_space_variance,
-        current_number_of_states,
-        states,
-    )
+    most_recent_variance = system_state.variances[end].at_time(system_state.current_time)
 
     # This is (FP_{t+Deltat}F^T + Sigma_e)^-1
     helper_inverse = calculate_helper_inverse(
         observation_transform,
-        predicted_final_covariance_matrix,
+        most_recent_variance,
         measurement_variance,
     )
 
-    # helper_inverse_continuous = calculate_helper_inverse(
-    #     observation_transform,
-    #     predicted_final_continuous_covariance_matrix,
-    #     measurement_variance,
-    # )
-
-    # This is C in the paper
-    adaptation_coefficient = calculate_adaptation_coefficient(
-        shortened_covariance_matrix[:, [states.discrete_delay + 1, end]],
-        observation_transform,
-        helper_inverse,
-    )
+    # adaptation_coefficient is a function of s
+    get_most_recent_offdiagonal_as_function(system_state)
+    adaptation_coefficient(t) = get_most_recent_offdiagonal_as_function(system_state)(t)*observation_transform'*helper_inverse
 
     # this is ρ*
-    state_space_mean = update_mean!(
-        state_space_mean,
-        current_number_of_states,
-        states,
+    system_state = update_mean!(
+        system_state,
         adaptation_coefficient,
-        current_observation,
         observation_transform,
     )
 
     # This is P*
-    state_space_variance, continuous_state_space_variance = update_variance!(
-        state_space_variance,
-        continuous_state_space_variance,
-        current_number_of_states,
-        shortened_covariance_matrix,
-        all_indices_up_to_delay,
-        states,
-        adaptation_coefficient,
+    system_state = update_variance!(
+        system_state,
         observation_transform,
-        helper_inverse
+        helper_inverse,
     )
 
-    println("Update step: ")
-    println(state_space_variance[
-        [
-            current_number_of_states,
-            states.total_number_of_states + current_number_of_states,
-        ],
-        [
-            current_number_of_states,
-            states.total_number_of_states + current_number_of_states,
-        ]
-    ])
-    println(continuous_state_space_variance[states.discrete_delay+1,end](current_number_of_states))
-    println()
+    system_state = update_off_diagonals!(
+        system_state,
+        observation_transform,
+        helper_inverse,
+    )
 
-    return state_space_mean, state_space_variance, continuous_state_space_variance
+    return system_state
 end # function
