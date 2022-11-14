@@ -274,7 +274,9 @@ function initialise_state_space_mean(states::TimeConstructor, steady_state,τ)
     prob = ODEProblem(initial_mean!,u0,tspan)
     sol = solve(prob,callback=cb,tstops=[0])
 
-    return fill(sol,ceil(Int,τ/states.observation_time_step) + ceil(Int,states.observation_time_step/τ))
+    total_number_of_solution_objects = ceil(Int,τ/states.observation_time_step) + ceil(Int,states.observation_time_step/τ)
+
+    return fill(sol,total_number_of_solution_objects)
 end
 
 """
@@ -387,6 +389,19 @@ function kalman_filter_state_space_initialisation(
         observation_transform,
         measurement_variance,
     )
+
+    println("Continuous: ", continuous_state_space_variance[states.discrete_delay+1,end](0))
+    println("Discrete: ", state_space_variance[
+        [
+            30,
+            states.total_number_of_states + 30,
+        ],
+        [
+            30,
+            states.total_number_of_states + 30,
+        ]
+    ])
+
     # update the past ("negative time")
     current_observation = protein_at_observations[1, :]
     state_space_mean, state_space_variance, continuous_state_space_variance = kalman_update_step!(
@@ -398,6 +413,18 @@ function kalman_filter_state_space_initialisation(
         measurement_variance,
         observation_transform,
     )
+
+    println("Continuous: ", continuous_state_space_variance[states.discrete_delay+1,end](0))
+    println("Discrete: ", state_space_variance[
+        [
+            30,
+            states.total_number_of_states + 30,
+        ],
+        [
+            30,
+            states.total_number_of_states + 30,
+        ]
+    ])
 
     return state_space_mean, state_space_variance, continuous_state_space_variance, predicted_observation_distributions
 end # function
@@ -680,12 +707,20 @@ function predict_state_space_variance!(
 
         past_to_now_diagonal_variance = state_space_variance_indexer(
             continuous_state_space_variance,
-            past_index-(states.discrete_delay+1),# not sure about these times
-            t-(states.discrete_delay+1),
-            current_number_of_states-(states.discrete_delay+1),
+            past_index,#-(states.discrete_delay+1),# not sure about these times
+            t,#-(states.discrete_delay+1),
+            current_number_of_states,#-(states.discrete_delay+1),
             states
         )
 
+        past_to_now_diagonal_variance_test = state_space_variance[[past_index,states.total_number_of_states+past_index],
+                                                             [Int(t),states.total_number_of_states+Int(t)]]
+
+        if Int(t)==30
+            println("In RHS")
+            println(past_to_now_diagonal_variance)
+            println(past_to_now_diagonal_variance_test)
+        end
         delayed_jacobian = construct_delayed_jacobian(model_parameters, past_protein)
 
         variance_of_noise = [p[3]*current_mean[1]+p[5]*hill_function(past_protein, p[1], p[2]) 0.0;
@@ -824,18 +859,33 @@ function kalman_prediction_step!(
         )
 
     println("Prediction step: ")
+    println("Diagonal: ")
     println(state_space_variance[
         [
-            current_number_of_states,
-            states.total_number_of_states + current_number_of_states,
+            current_number_of_states+9,
+            states.total_number_of_states + current_number_of_states+9,
         ],
         [
-            current_number_of_states,
-            states.total_number_of_states + current_number_of_states,
+            current_number_of_states+9,
+            states.total_number_of_states + current_number_of_states+9,
         ]
     ])
-    println(continuous_state_space_variance[states.discrete_delay+1,end](current_number_of_states))
+    println(continuous_state_space_variance[states.discrete_delay+1,end](current_number_of_states+9))
     println()
+    println("Off diagonal: ")
+    println(state_space_variance[
+        [
+            current_number_of_states+9,
+            states.total_number_of_states + current_number_of_states+9,
+        ],
+        [
+            current_number_of_states+10,
+            states.total_number_of_states + current_number_of_states+10,
+        ]
+    ])
+    println(continuous_state_space_variance[end-1,end](current_number_of_states+10))
+    println()
+
     return state_space_mean, state_space_variance, continuous_state_space_variance
 end # function
 
@@ -969,6 +1019,11 @@ function update_variance!(
         shortened_covariance_matrix[[states.discrete_delay + 1, end], :]
     )
 
+    println((adaptation_coefficient *
+    observation_transform *
+    shortened_covariance_matrix[[states.discrete_delay + 1, end], :])[[states.discrete_delay + 1, end], [states.discrete_delay + 1, end]])
+    println()
+
     idx = diagind(updated_shortened_covariance_matrix)
     updated_shortened_covariance_matrix[idx] = max.(updated_shortened_covariance_matrix[idx], 0.0)
 
@@ -988,7 +1043,13 @@ function update_variance!(
             states
         )*observation_transform'*
         helper_inverse*
-        observation_transform*shortened_covariance_matrix[[states.discrete_delay + 1, end], [states.discrete_delay + 1, end]] # TODO need to fix this last part, P_t,t-τ:t
+        observation_transform*state_space_variance_indexer(
+            continuous_state_space_variance,
+            t,
+            t,# need to change this 
+            current_number_of_states-(states.discrete_delay+1),
+            states
+        )#shortened_covariance_matrix[[states.discrete_delay + 1, end], [states.discrete_delay + 1, end]] # TODO need to fix this last part, P_t,t-τ:t
     end
 
     updated_continuous_state_space_variance = copy(continuous_state_space_variance)# .+ variance_update_addition
