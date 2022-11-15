@@ -120,8 +120,6 @@ function kalman_filter(
             system_state,
             model_parameters,
         )
-
-        system_state = update_current_time_and_observation!(system_state)
         
         # between the prediction and update steps we record the normal distributions for our likelihood
         predicted_observation_distributions[observation_index,:] .= distribution_prediction(
@@ -318,7 +316,7 @@ function get_specific_off_diagonal_value_at_time(t, off_diagonal_entry)
     return off_diagonal_entry.at_time(t)
 end
 
-function get_off_diagonal_at_time(time_1, time_2, system_state)
+function get_off_diagonal_at_time_combination(time_1, time_2, system_state)
     @assert time_1 < time_2 "First time must be less than second time"
     
     past_values = fill(zeros(2,2), length(system_state.off_diagonal_timepoints))
@@ -545,32 +543,33 @@ There are three separate steps in the variance prediction:
     (2) Integrate P(t,t) to P(t+nΔt,t+nΔt). (diagonal)
     (3) Integrate P(t,t) to P(t,t+nΔt) for t in t:t+nΔt-1. (horizontal/vertical)
 """
-function predict_state_space_variance!(
+function predict_variance_and_off_diagonals!(
     system_state,
     model_parameters,
-    instant_jacobian
     )
+
+    instant_jacobian = construct_instant_jacobian(model_parameters)
     
-    function state_space_variance_RHS(du,u,p,t)
+    function state_space_variance_RHS(dvariance, current_variance, params, t)
         past_time = t - system_state.delay
         past_protein = get_mean_at_time(past_time, system_state)[2]
         current_mean = get_mean_at_time(t, system_state)
 
         # P(t-τ, t)
-        past_to_now_diagonal_variance = get_off_diagonal_at_time(past_time, t, system_state)
+        past_to_now_diagonal_variance = get_off_diagonal_at_time_combination(past_time, t, system_state)
         
         delayed_jacobian = construct_delayed_jacobian(model_parameters, past_protein)
 
-        variance_of_noise = [p[3]*current_mean[1]+p[5]*hill_function(past_protein, p[1], p[2]) 0.0;
-                             0.0 p[6]*current_mean[1]+p[4]*current_mean[2]]
+        variance_of_noise = [params[3]*current_mean[1]+params[5]*hill_function(past_protein, params[1], params[2]) 0.0;
+                             0.0 params[6]*current_mean[1]+params[4]*current_mean[2]]
 
-        du .= instant_jacobian*u + u*instant_jacobian' +
+        dvariance .= instant_jacobian*current_variance + current_variance*instant_jacobian' +
              delayed_jacobian*past_to_now_diagonal_variance +
              past_to_now_diagonal_variance'*delayed_jacobian' +
              variance_of_noise
     end # function
 
-    function off_diagonal_state_space_variance_RHS(du,u,p,diag_t) # p is the intermediate time index s
+    function off_diagonal_state_space_variance_RHS(dcovariance, covariance, s, diag_t) # s is the intermediate time index
         past_time = diag_t - system_state.delay # t - τ
         past_protein = get_mean_at_time(past_time, system_state)[2]
         
@@ -580,9 +579,9 @@ function predict_state_space_variance!(
             covariance_matrix_intermediate_to_past = zeros(2,2)
         else
             # P(s, t-τ)
-            covariance_matrix_intermediate_to_past = get_off_diagonal_at_time(p, past_time, system_state)
+            covariance_matrix_intermediate_to_past = get_off_diagonal_at_time_combination(s, past_time, system_state)
        end
-        du .= u*instant_jacobian' +
+        dcovariance .= covariance*instant_jacobian' +
              covariance_matrix_intermediate_to_past*delayed_jacobian'
 
     end # function
@@ -606,6 +605,7 @@ function predict_state_space_variance!(
         current_time = next_end_time
     end
 
+    return system_state
     # in the case of τ < observation_time_step, we have to do the below procedure multiple times (ceil(observation/τ) times)
     # since otherwise certain P(t-τ,s) values will not exist #TODO bad explanation
     # initial_condition_times = Int.([current_number_of_states + states.discrete_delay*x for x in 0:ceil(states.number_of_hidden_states/states.discrete_delay)-1])
@@ -633,18 +633,18 @@ function kalman_prediction_step!(
     system_state,
     model_parameters,
 )
-    instant_jacobian = construct_instant_jacobian(model_parameters)
-
     system_state = predict_state_space_mean!(
         system_state,
         model_parameters,
         )
 
-    predict_state_space_variance!(
+    system_state = predict_variance_and_off_diagonals!(
         system_state,
         model_parameters,
-        instant_jacobian
         )
+
+    # move to the next observation for the update step
+    system_state = update_current_time_and_observation!(system_state)
 
     return system_state
 end # function
