@@ -28,12 +28,11 @@ function calculate_log_likelihood_at_parameter_point(
     size(protein_at_observations, 2) == 2 ||
         throw(ArgumentError("observation matrix must be N × 2"))
 
-    if any(model_parameters .<= 0.0)
-        return -Inf
-    end
+    @assert all(model_parameters .>= 0.0) "all model parameters must be positive"
 
-    _, _, _, distributions =
+    _, distributions =
         kalman_filter(protein_at_observations, model_parameters, measurement_variance)
     observations = protein_at_observations[:, 2]
-    return sum(logpdf.(distributions, observations))
+
+    return sum(logpdf.(Normal(distributions[:,1],sqrt.(distributions[:,2])), observations))
 end
