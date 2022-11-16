@@ -26,11 +26,8 @@ function distribution_prediction(
     observation_transform,
     measurement_variance,
 )
-    println("Current time: ", system_state.current_time)
     mean_prediction = system_state.means[end].at_time(system_state.current_time)[2]
-    println("mean: ", mean_prediction)
     last_predicted_covariance_matrix = system_state.variances[end].at_time(system_state.current_time)
-    println("variance: ", last_predicted_covariance_matrix)
 
     variance_prediction =
         dot(
@@ -196,7 +193,8 @@ function initialise_off_diagonals(
     off_diagonal_timepoints = CircularBuffer{Float64}(number_of_offdiagonal_timepoints)
 
     for timepoint in LinRange(-τ, 0, number_of_offdiagonal_timepoints)
-        push!(off_diagonal_timepoints, timepoint)
+        # TODO round might not be a good solution
+        push!(off_diagonal_timepoints, round(timepoint, digits=2))
     end
 
     function initial_off_diagonal!(du,u,p,t)
@@ -258,7 +256,6 @@ function kalman_filter_state_space_initialisation(
     τ = model_parameters[7]
     means = initialise_state_space_mean(steady_state, τ)
     variances = initialise_state_space_variance(steady_state, τ)
-    # TODO - this should somehow be an input in the main function: number_of_off_diagonal_timepoints = τ
     off_diagonals, off_diagonal_timepoints = initialise_off_diagonals(steady_state, τ, off_diagonal_timestep)
 
     observation_time_step = Int(protein_at_observations[2,1] - protein_at_observations[1,1])
@@ -340,41 +337,39 @@ function get_specific_off_diagonal_value_at_time(t, off_diagonal_entry)
         end_time = solution_object.tspan[end]
 
         if start_time <= t <= end_time
+            println("Start: ", start_time)
             return solution_object.at_time(t)
         end 
     end
 end
 
 function get_off_diagonal_at_time_combination(time_1, time_2, system_state)
-    # @assert time_1 <= time_2 "time_1 > time_2"
+
+    transpose_result = false
+    if time_1 > time_2
+        transpose_result = true
+    end
+
+    min_time = min(time_1, time_2)
+    max_time = max(time_1, time_2)
     past_values = fill(zeros(2,2), length(system_state.off_diagonal_timepoints))
 
-    # TODO think about this, is it right?
-    if time_1 <= time_2
-        for (off_diagonal_index, off_diagonal_entry) in enumerate(system_state.off_diagonals)
-            this_value = get_specific_off_diagonal_value_at_time(time_2, off_diagonal_entry)
+    for (off_diagonal_index, off_diagonal_entry) in enumerate(system_state.off_diagonals)
+        this_value = get_specific_off_diagonal_value_at_time(max_time, off_diagonal_entry)
+        if transpose_result
+            past_values[off_diagonal_index] = this_value'
+        else
             past_values[off_diagonal_index] = this_value
         end
-
-        interpolated_values = LinearInterpolation(
-            system_state.off_diagonal_timepoints,
-            past_values
-        )
-    
-        return interpolated_values(time_1)
-    else
-        for (off_diagonal_index, off_diagonal_entry) in enumerate(system_state.off_diagonals)
-            this_value = get_specific_off_diagonal_value_at_time(time_1, off_diagonal_entry)
-            past_values[off_diagonal_index] = this_value'
-        end
-
-        interpolated_values = LinearInterpolation(
-            system_state.off_diagonal_timepoints,
-            past_values
-        )
-    
-        return interpolated_values(time_2)
     end
+
+    interpolated_values = LinearInterpolation(
+        system_state.off_diagonal_timepoints,
+        past_values
+    )
+    
+    return interpolated_values(min_time)
+
 end
 
 """
@@ -426,13 +421,12 @@ function propagate_existing_off_diagonals!(
     current_time,
     next_end_time,
 )
-    # TODO
+    println("Existing:")
     diag_tspan = (current_time, next_end_time)
 
     # we want to do P(s,t) -> P(s,t+nΔt) for s = t-τ:t
     for (off_diagonal_index, intermediate_time) in enumerate(system_state.off_diagonal_timepoints)
         # P(s,t)
-        println("Propagate: ",intermediate_time,", ",current_time)
         covariance_matrix_intermediate_to_current = get_off_diagonal_at_time_combination(
             intermediate_time,
             current_time,
@@ -467,40 +461,46 @@ function propagate_new_off_diagonals!(
     last_off_diagonal_timepoint,
     next_end_time,
 )
+    println("New:")
 
     # we want to do P(s,s) -> P(s,t+nΔt) for s = t:t+Δt
     # TODO
     current_off_diagonal_time_point = last_off_diagonal_timepoint + system_state.off_diagonal_timestep
     while current_off_diagonal_time_point < next_end_time+1
-    # for (off_diagonal_index, intermediate_time) in enumerate()
-
-        diag_tspan = (current_off_diagonal_time_point, next_end_time+1)
-        println(diag_tspan)
+        diag_tspan = (current_off_diagonal_time_point, next_end_time)
+        
         # P(s,t)
         initial_variance = get_variance_at_time(current_off_diagonal_time_point, system_state)
 
-        off_diag_prob = ODEProblem(
-            off_diagonal_RHS,
-            initial_variance,
-            diag_tspan,
-            current_off_diagonal_time_point
-        )
+        if current_off_diagonal_time_point == next_end_time
+            # variance
+            function off_diag_solution(t)
+                return initial_variance
+            end
+        else
+            println("Here")
+            off_diag_prob = ODEProblem(
+                off_diagonal_RHS,
+                initial_variance,
+                diag_tspan,
+                current_off_diagonal_time_point
+            )
 
-        off_diag_solution = solve(
-            off_diag_prob,
-            Euler(),
-            dt=1.,
-            adaptive=false,
-            saveat=1.,
-            dtmin=1.,
-            dtmax=1.
-        )
+            off_diag_solution = solve(
+                off_diag_prob,
+                Euler(),
+                dt=1.,
+                adaptive=false,
+                saveat=1.,
+                dtmin=1.,
+                dtmax=1.
+            )
+        end
         
         # TODO 
         push!(system_state.off_diagonals, [SolutionObject(off_diag_solution, diag_tspan)])
         push!(system_state.off_diagonal_timepoints,current_off_diagonal_time_point)
         current_off_diagonal_time_point += system_state.off_diagonal_timestep
-        println(current_off_diagonal_time_point)
     end
     return system_state
 end
@@ -512,7 +512,6 @@ function propagate_variance!(
     next_end_time,
     model_parameters,
 )
-
     initial_variance = get_variance_at_time(current_time, system_state)
     tspan = (current_time, next_end_time)
     variance_prob = ODEProblem(
@@ -559,7 +558,11 @@ function predict_variance_and_off_diagonals!(
         current_mean = get_mean_at_time(t, system_state)
 
         # P(t-τ, t)
-        past_to_now_diagonal_variance = get_off_diagonal_at_time_combination(past_time, t, system_state)
+        if past_time < 0 || t < 0
+            past_to_now_diagonal_variance = zeros(2,2)
+        else
+            past_to_now_diagonal_variance = get_off_diagonal_at_time_combination(past_time, t, system_state)
+        end
         
         delayed_jacobian = construct_delayed_jacobian(model_parameters, past_protein)
 
@@ -662,6 +665,17 @@ function kalman_prediction_step!(
     # move system_state to the next observation for the update step
     system_state = update_current_time_and_observation!(system_state)
 
+    println("Predict")
+    observation_transform = [1. 0.]
+    measurement_variance = 10_000.0
+    println("Current time: ", system_state.current_time)
+    println("mean: ", system_state.means[end].at_time(system_state.current_time))
+    println("std: ",sqrt(dot(
+            observation_transform,
+            system_state.variances[end].at_time(system_state.current_time) * observation_transform',
+        ) + measurement_variance))
+    println()
+
     return system_state
 end # function
 
@@ -673,7 +687,6 @@ function update_mean!(
 )
     most_recent_mean = get_mean_at_time(system_state.current_time, system_state)
     adaptation_coefficient(t) = most_recent_off_diagonal(t)*observation_transform'*helper_inverse
-
 
     function update_addition_function(t)
         adaptation_coefficient(t)*( system_state.current_observation -
@@ -733,10 +746,11 @@ function get_most_recent_offdiagonal_as_function(system_state)
     for (off_diagonal_index, off_diagonal_entry) in enumerate(system_state.off_diagonals)
         most_recent_off_diagonals[off_diagonal_index] = off_diagonal_entry[end].at_time(system_state.current_time)
     end
-    println(system_state.off_diagonal_timepoints)
+
     return LinearInterpolation(
         system_state.off_diagonal_timepoints,
-        most_recent_off_diagonals
+        most_recent_off_diagonals,
+        # extrapolation_bc=Line()
         )
 end
 
@@ -809,6 +823,16 @@ function kalman_update_step!(
         observation_transform,
         helper_inverse,
     )
+
+    println("Update")
+    println("Current time: ", system_state.current_time)
+    println("mean at 0: ", system_state.means[end].at_time(0))
+    println("mean: ", system_state.means[end].at_time(system_state.current_time))
+    println("std: ",sqrt(dot(
+            observation_transform,
+            system_state.variances[end].at_time(system_state.current_time) * observation_transform',
+        ) + measurement_variance))
+    println()
 
     return system_state
 end
