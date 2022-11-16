@@ -4,6 +4,7 @@ mutable struct SystemState
     off_diagonals # circular buffer with entries which are arrays
     off_diagonal_timepoints # the s values corresponding to the entries in off_diagonals
     delay # Float64
+    off_diagonal_timestep # Float64
     observations # array
     observation_time_points # array
     observation_time_step # Integer
@@ -105,7 +106,8 @@ julia> distributions[1,:]
 function kalman_filter(
     protein_at_observations::Matrix{<:AbstractFloat},
     model_parameters::Vector{<:AbstractFloat},
-    measurement_variance::AbstractFloat,
+    measurement_variance::AbstractFloat;
+    off_diagonal_timestep::AbstractFloat=1.0,
 )
     # F in the paper
     observation_transform = [0.0 1.0]
@@ -116,6 +118,7 @@ function kalman_filter(
         model_parameters,
         observation_transform,
         measurement_variance,
+        off_diagonal_timestep,
     )
 
     # loop through observations and at each observation apply the Kalman prediction step and then the update step
@@ -184,10 +187,11 @@ Initialse the off diagonals for a given set of time states and the ODE system's 
 function initialise_off_diagonals(
     steady_state,
     τ,
-    number_of_offdiagonal_timepoints;
+    off_diagonal_timestep;
     mRNA_scaling = 20.0,
     protein_scaling = 100.0,
 )
+    number_of_offdiagonal_timepoints = round(Int,τ/off_diagonal_timestep) + 1
     off_diagonals = CircularBuffer{Array}(number_of_offdiagonal_timepoints)
     off_diagonal_timepoints = CircularBuffer{Float64}(number_of_offdiagonal_timepoints)
 
@@ -246,6 +250,7 @@ function kalman_filter_state_space_initialisation(
     model_parameters,
     observation_transform,
     measurement_variance,
+    off_diagonal_timestep,
 )
     steady_state = calculate_steady_state_of_ode(model_parameters)
 
@@ -254,7 +259,7 @@ function kalman_filter_state_space_initialisation(
     means = initialise_state_space_mean(steady_state, τ)
     variances = initialise_state_space_variance(steady_state, τ)
     # TODO - this should somehow be an input in the main function: number_of_off_diagonal_timepoints = τ
-    off_diagonals, off_diagonal_timepoints = initialise_off_diagonals(steady_state, τ, round(Int, τ) + 1)
+    off_diagonals, off_diagonal_timepoints = initialise_off_diagonals(steady_state, τ, off_diagonal_timestep)
 
     observation_time_step = Int(protein_at_observations[2,1] - protein_at_observations[1,1])
     current_time = Int(protein_at_observations[1,1])
@@ -266,6 +271,7 @@ function kalman_filter_state_space_initialisation(
         off_diagonals,
         off_diagonal_timepoints,
         τ,
+        off_diagonal_timestep,
         protein_at_observations[:,2],
         protein_at_observations[:,1],
         observation_time_step,
@@ -458,24 +464,26 @@ end
 function propagate_new_off_diagonals!(
     system_state,
     off_diagonal_RHS,
-    current_time,
+    last_off_diagonal_timepoint,
     next_end_time,
 )
 
     # we want to do P(s,s) -> P(s,t+nΔt) for s = t:t+Δt
     # TODO
-    while current_off_diagonal_time_point <= next_end_time
+    current_off_diagonal_time_point = last_off_diagonal_timepoint + system_state.off_diagonal_timestep
+    while current_off_diagonal_time_point < next_end_time+1
     # for (off_diagonal_index, intermediate_time) in enumerate()
 
-        diag_tspan = (intermediate_time, next_end_time)
+        diag_tspan = (current_off_diagonal_time_point, next_end_time+1)
+        println(diag_tspan)
         # P(s,t)
-        initial_variance = get_variance_at_time(intermediate_time, system_state)
+        initial_variance = get_variance_at_time(current_off_diagonal_time_point, system_state)
 
         off_diag_prob = ODEProblem(
             off_diagonal_RHS,
             initial_variance,
             diag_tspan,
-            intermediate_time
+            current_off_diagonal_time_point
         )
 
         off_diag_solution = solve(
@@ -489,8 +497,10 @@ function propagate_new_off_diagonals!(
         )
         
         # TODO 
-        # push!(system_state.off_diagonal_timepoints,??)
-        push!(system_state.off_diagonals, SolutionObject(off_diag_solution, diag_tspan))
+        push!(system_state.off_diagonals, [SolutionObject(off_diag_solution, diag_tspan)])
+        push!(system_state.off_diagonal_timepoints,current_off_diagonal_time_point)
+        current_off_diagonal_time_point += system_state.off_diagonal_timestep
+        println(current_off_diagonal_time_point)
     end
     return system_state
 end
@@ -604,7 +614,7 @@ function predict_variance_and_off_diagonals!(
         system_state = propagate_new_off_diagonals!(
             system_state,
             off_diagonal_RHS,
-            current_time,
+            last_off_diagonal_timepoint,
             next_end_time,
         )
 
@@ -723,7 +733,7 @@ function get_most_recent_offdiagonal_as_function(system_state)
     for (off_diagonal_index, off_diagonal_entry) in enumerate(system_state.off_diagonals)
         most_recent_off_diagonals[off_diagonal_index] = off_diagonal_entry[end].at_time(system_state.current_time)
     end
-
+    println(system_state.off_diagonal_timepoints)
     return LinearInterpolation(
         system_state.off_diagonal_timepoints,
         most_recent_off_diagonals
