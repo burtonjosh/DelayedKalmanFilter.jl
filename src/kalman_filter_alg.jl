@@ -47,7 +47,6 @@ function update_current_time_and_observation!(
     system_state.current_time += system_state.observation_time_step
     observation_index = (system_state.current_time ÷ system_state.observation_time_step) + 1
     system_state.current_observation = system_state.observations[observation_index]
-
     return system_state
 end
 
@@ -120,15 +119,11 @@ function kalman_filter(
 
     # loop through observations and at each observation apply the Kalman prediction step and then the update step
     for observation_index = 2:size(protein_at_observations, 1)
-        println("mean at 0 before prediction function: ", system_state.means[1].at_time(0.0))
         system_state = kalman_prediction_step!(
             system_state,
             model_parameters,
         )
 
-        println("mean at 0 after prediction function: ", system_state.means[1].at_time(0.0))
-
-        
         # between the prediction and update steps we record the predicted mean and variance our likelihood
         predicted_observation_distributions[observation_index,:] .= distribution_prediction(
                 system_state,
@@ -137,13 +132,11 @@ function kalman_filter(
             )
 
         # TODO the update step on the last loop iteration is redundant for likelihood calculation
-        println("mean at 0 before update step: ", system_state.means[1].at_time(0.0))
         system_state = kalman_update_step!(
             system_state,
             measurement_variance,
             observation_transform,
         )
-        println("mean at 0 after update step: ", system_state.means[1].at_time(0.0))
 
     end # for
     return system_state, predicted_observation_distributions
@@ -293,14 +286,11 @@ function kalman_filter_state_space_initialisation(
     )
 
     # update the past ("negative time")
-    println("mean at 0 before update step: ", system_state.means[1].at_time(0.0))
     system_state = kalman_update_step!(
         system_state,
         measurement_variance,
         observation_transform,
     )
-    println("mean at 0 after update step: ", system_state.means[1].at_time(0.0))
-
 
     return system_state, predicted_observation_distributions
 end # function
@@ -347,7 +337,6 @@ function get_specific_off_diagonal_value_at_time(t, off_diagonal_entry)
         end_time = solution_object.tspan[end]
 
         if start_time <= t <= end_time
-            # println("Start: ", start_time)
             return solution_object.at_time(t)
         end 
     end
@@ -431,7 +420,6 @@ function propagate_existing_off_diagonals!(
     current_time,
     next_end_time,
 )
-    # println("Existing:")
     diag_tspan = (current_time, next_end_time)
 
     # we want to do P(s,t) -> P(s,t+nΔt) for s = t-τ:t
@@ -471,13 +459,9 @@ function propagate_new_off_diagonals!(
     last_off_diagonal_timepoint,
     next_end_time,
 )
-    println()
-    println("New:")
-
     # we want to do P(s,s) -> P(s,t+nΔt) for s = t:t+Δt
     # TODO
     current_off_diagonal_time_point = last_off_diagonal_timepoint + system_state.off_diagonal_timestep
-    println("mean at 0 before while loop: ", system_state.means[1].at_time(0.0))
     while current_off_diagonal_time_point < next_end_time+1
         diag_tspan = (current_off_diagonal_time_point, next_end_time)
         
@@ -490,15 +474,12 @@ function propagate_new_off_diagonals!(
                 return initial_variance
             end
         else
-            println("mean at 0 before ODE prob: ", system_state.means[1].at_time(0.0))
-            # println("Here")
             off_diag_prob = ODEProblem(
                 off_diagonal_RHS,
                 initial_variance,
                 diag_tspan,
                 current_off_diagonal_time_point
             )
-            println("mean at 0 after ODE prob: ", system_state.means[1].at_time(0.0))
 
             off_diag_solution = solve(
                 off_diag_prob,
@@ -509,17 +490,13 @@ function propagate_new_off_diagonals!(
                 dtmin=1.,
                 dtmax=1.
             )
-            println("mean at 0 after ODE solve: ", system_state.means[1].at_time(0.0))
         end
         
         # TODO 
         push!(system_state.off_diagonals, [SolutionObject(off_diag_solution, diag_tspan)])
-        println("mean at 0 after first push: ", system_state.means[1].at_time(0.0))
         push!(system_state.off_diagonal_timepoints,current_off_diagonal_time_point)
-        println("mean at 0 after second push: ", system_state.means[1].at_time(0.0))
         current_off_diagonal_time_point += system_state.off_diagonal_timestep
     end
-    println("mean at 0 after while loop: ", system_state.means[1].at_time(0.0))
     return system_state
 end
 
@@ -615,11 +592,9 @@ function predict_variance_and_off_diagonals!(
     current_time = copy(system_state.current_time)
     last_off_diagonal_timepoint = system_state.off_diagonal_timepoints[end]
     next_observation_time = system_state.current_time + system_state.observation_time_step
-    println("mean at 0 before while loop: ", system_state.means[1].at_time(0.0))
 
     while current_time < next_observation_time
         next_end_time = min(next_observation_time, last_off_diagonal_timepoint + system_state.delay)
-        println("mean at 0 while 1: ", system_state.means[1].at_time(0.0))
 
         system_state = propagate_existing_off_diagonals!(
             system_state,
@@ -627,7 +602,6 @@ function predict_variance_and_off_diagonals!(
             current_time,
             next_end_time,
         )
-        println("mean at 0 while 2: ", system_state.means[1].at_time(0.0))
         system_state = propagate_variance!(
             system_state,
             variance_RHS,
@@ -635,18 +609,14 @@ function predict_variance_and_off_diagonals!(
             next_end_time,
             model_parameters,
         )
-        println("mean at 0 while 3: ", system_state.means[1].at_time(0.0))
         system_state = propagate_new_off_diagonals!(
             system_state,
             off_diagonal_RHS,
             last_off_diagonal_timepoint,
             next_end_time,
         )
-        println("mean at 0 while 4: ", system_state.means[1].at_time(0.0))
-
         current_time = next_end_time
     end
-    println("mean at 0 after while loop: ", system_state.means[1].at_time(0.0))
 
     return system_state
     # in the case of τ < observation_time_step, we have to do the below procedure multiple times (ceil(observation/τ) times)
@@ -676,38 +646,30 @@ function kalman_prediction_step!(
     system_state,
     model_parameters,
 )
-    println()
-    println("Prediction step")
-    println("mean at 0 before prediction step: ", system_state.means[1].at_time(0.0))
     system_state = predict_state_space_mean!(
         system_state,
         model_parameters,
     )
-    println("mean at 0 after prediction step: ", system_state.means[1].at_time(0.0))
 
     system_state = predict_variance_and_off_diagonals!(
         system_state,
         model_parameters,
-        )
-    println("mean at 0 after predict variance: ", system_state.means[1].at_time(0.0))
+    )
 
     # move system_state to the next observation for the update step
     system_state = update_current_time_and_observation!(system_state)
 
-    # println("Predict")
+    println("Predict")
     observation_transform = [1. 0.]
     measurement_variance = 10_000.0
-    # println("Current time: ", system_state.current_time)
-    # println("mean at 0: ", get_mean_at_time(0.0, system_state))
-    # println("mean at 0: ", system_state.means[1].at_time(0.0))
-    # println("mean: ",get_mean_at_time(system_state.current_time, system_state))
-    # println("std: ",sqrt(dot(
-            # observation_transform,
-            # system_state.variances[end].at_time(system_state.current_time) * observation_transform',
-        # ) + measurement_variance))
-    # println()
-    println("mean at 0 end of prediction function: ", system_state.means[1].at_time(0.0))
-
+    println("Current time: ", system_state.current_time)
+    println("mean at 0: ", get_mean_at_time(0.0, system_state))
+    println("mean: ",get_mean_at_time(system_state.current_time, system_state))
+    println("std: ",sqrt(dot(
+            observation_transform,
+            system_state.variances[end].at_time(system_state.current_time) * observation_transform',
+        ) + measurement_variance))
+    println()
 
     return system_state
 end # function
@@ -720,17 +682,17 @@ function update_mean!(
 )
     most_recent_mean = get_mean_at_time(system_state.current_time, system_state)
     adaptation_coefficient(t) = most_recent_off_diagonal(t)*observation_transform'*helper_inverse
+    
+    # need to copy current_observation since it get's updated later
+    observation = copy(system_state.current_observation)
 
     function update_addition_function(t)
-        adaptation_coefficient(t)*( system_state.current_observation -
+        adaptation_coefficient(t)*( observation -
             dot(observation_transform, most_recent_mean) )
     end
-    # println("Update addition: ", update_addition_function(0))
-    println("mean at 0 before addition: ", system_state.means[1].at_time(0.0))
     for index in 1:length(system_state.means) # TODO don't need to update everything -- fix this
         system_state.means[index].at_time = system_state.means[index].at_time + update_addition_function
     end
-    println("mean at 0 after addition: ", system_state.means[1].at_time(0.0))
     
     return system_state
 end
@@ -825,8 +787,6 @@ function kalman_update_step!(
     measurement_variance,
     observation_transform,
 )
-    println()
-    println("Update step")
     # This is P(t+Δt,t+Δt) in the paper
     most_recent_variance = system_state.variances[end].at_time(system_state.current_time)
 
@@ -840,14 +800,12 @@ function kalman_update_step!(
     # this is P(s, t+Δt) as a function of s
     most_recent_off_diagonal = get_most_recent_offdiagonal_as_function(system_state)
 
-    println("mean at 0 before update mean: ", system_state.means[1].at_time(0.0))
     system_state = update_mean!(
         system_state,
         most_recent_off_diagonal,
         observation_transform,
         helper_inverse,
     )
-    println("mean at 0 after update mean: ", system_state.means[1].at_time(0.0))
 
     system_state = update_variance!(
         system_state,
@@ -863,17 +821,15 @@ function kalman_update_step!(
         helper_inverse,
     )
 
-    # println("Update")
-    # println("Current time: ", system_state.current_time)
-    # println("mean at 0: ", get_mean_at_time(0.0,system_state))
-    # println("mean at 0: ", system_state.means[1].at_time(0.0))
-    # println("mean: ", system_state.means[end].at_time(system_state.current_time))
-    # println("std: ",sqrt(dot(
-            # observation_transform,
-            # system_state.variances[end].at_time(system_state.current_time) * observation_transform',
-        # ) + measurement_variance))
-    # println()
-    println("mean at 0 end of update function: ", system_state.means[1].at_time(0.0))
+    println("Update")
+    println("Current time: ", system_state.current_time)
+    println("mean at 0: ", get_mean_at_time(0.0,system_state))
+    println("mean: ", system_state.means[end].at_time(system_state.current_time))
+    println("std: ",sqrt(dot(
+            observation_transform,
+            system_state.variances[end].at_time(system_state.current_time) * observation_transform',
+        ) + measurement_variance))
+    println()
 
     return system_state
 end
