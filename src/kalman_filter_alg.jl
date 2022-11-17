@@ -205,7 +205,10 @@ function initialise_off_diagonals(
     prob = ODEProblem(initial_off_diagonal!,u0,tspan)
     sol = solve(prob)
 
-    fill!(off_diagonals,[SolutionObject(sol, tspan)])
+    # fill!(off_diagonals,[SolutionObject(sol, tspan)])
+    for _ in 1:number_of_offdiagonal_timepoints
+        push!(off_diagonals, [SolutionObject(sol,tspan)])
+    end
 
     # final off diagonal -- negative times don't matter because we don't use them
     u0 = [steady_state[1]*mRNA_scaling 0.0; 0.0 steady_state[2]*protein_scaling]
@@ -311,10 +314,10 @@ end
 
 function get_mean_at_time(t, system_state)
     for solution_object in system_state.means
-        start_time = solution_object.tspan[1]
-        end_time = solution_object.tspan[end]
+        # start_time = solution_object.tspan[1]
+        # end_time = solution_object.tspan[end]
 
-        if start_time <= t <= end_time
+        if solution_object.tspan[1] <= t <= solution_object.tspan[end]
             return solution_object.at_time(t)
         end 
     end
@@ -322,10 +325,11 @@ end
 
 function get_variance_at_time(t, system_state)
     for solution_object in system_state.variances
-        start_time = solution_object.tspan[1]
-        end_time = solution_object.tspan[end]
+        # start_time = solution_object.tspan[1]
+        # end_time = solution_object.tspan[end]
 
-        if start_time <= t <= end_time
+        if solution_object.tspan[1] <= t <= solution_object.tspan[end]
+            # if start_time <= t <= end_time
             return solution_object.at_time(t)
         end 
     end
@@ -335,12 +339,9 @@ function get_specific_off_diagonal_value_at_time(t, off_diagonal_entry)
     for solution_object in off_diagonal_entry
         start_time = solution_object.tspan[1]
         end_time = solution_object.tspan[end]
-        # println(solution_object.tspan)
-        # println("Time: ", t)
         if start_time <= t <= end_time
-            # println("Inside if")
             return solution_object.at_time(t)
-        end 
+        end
     end
 end
 
@@ -359,16 +360,9 @@ function get_off_diagonal_at_time_combination(time_1, time_2, system_state)
     max_time = max(time_1, time_2)
     past_values = fill(zeros(2,2), length(system_state.off_diagonal_timepoints))
 
-    # println()
-    # println("Times: ")
-    # println(time_1,", ",time_2)
-    # println(system_state.off_diagonal_timepoints)
-
-
     for (off_diagonal_index, off_diagonal_entry) in enumerate(system_state.off_diagonals)
-        # println("Off diagonal time, ",system_state.off_diagonal_timepoints[off_diagonal_index])
         this_value = get_specific_off_diagonal_value_at_time(max_time, off_diagonal_entry)
-        # println(this_value)
+
         if transpose_result
             past_values[off_diagonal_index] = this_value'
         else
@@ -396,7 +390,6 @@ function predict_state_space_mean!(
     function state_space_mean_RHS(du,u,h,p,t)
         past_time = t - system_state.delay # p[7]
         # if past_time >= tspan[1] # history function in case τ < number_of_hidden_states
-        println(past_time)
         past_protein = h(p,past_time)
         # else # otherwise pre defined indexer
             # past_protein = get_mean_at_time(past_time, system_state)[2]
@@ -436,17 +429,6 @@ function propagate_existing_off_diagonals!(
     next_end_time,
 )
     diag_tspan = (current_time, next_end_time)
-    println()
-    println("Propagate, ", diag_tspan)
-    println()
-
-    # for (off_diagonal_time_index, off_diagonal_entry) in enumerate(system_state.off_diagonals)
-    #     println("Time index: ",off_diagonal_time_index)
-    #     println("Off diagonal time: ", system_state.off_diagonal_timepoints[off_diagonal_time_index])
-    #     for solution_object in off_diagonal_entry
-    #         println("    tspan: ", solution_object.tspan)
-    #     end
-    # end
 
     # we want to do P(s,t) -> P(s,t+nΔt) for s = t-τ:t
     for (off_diagonal_index, intermediate_time) in enumerate(system_state.off_diagonal_timepoints)
@@ -457,16 +439,19 @@ function propagate_existing_off_diagonals!(
             system_state
         )
 
-        off_diag_prob = ODEProblem(
+        history(s, t) = get_specific_off_diagonal_value_at_time(t, system_state.off_diagonals[off_diagonal_index])
+
+        off_diag_prob = DDEProblem(
             off_diagonal_RHS,
             covariance_matrix_intermediate_to_current,
+            history,
             diag_tspan,
-            intermediate_time
+            intermediate_time; constant_lags=[system_state.delay]
         )
 
         off_diag_solution = solve(
             off_diag_prob,
-            Euler(),
+            MethodOfSteps(Euler()),
             dt=1.,
             adaptive=false,
             saveat=1.,
@@ -475,7 +460,9 @@ function propagate_existing_off_diagonals!(
         )
 
         push!(system_state.off_diagonals[off_diagonal_index], SolutionObject(off_diag_solution, diag_tspan))
+
     end
+
     return system_state
 end
 
@@ -488,38 +475,52 @@ function propagate_new_off_diagonals!(
     # we want to do P(s,s) -> P(s,t+nΔt) for s = t:t+Δt
     # TODO
     current_off_diagonal_time_point = last_off_diagonal_timepoint + system_state.off_diagonal_timestep
-    while current_off_diagonal_time_point < next_end_time
+    while current_off_diagonal_time_point <= next_end_time
         diag_tspan = (current_off_diagonal_time_point, next_end_time)
         
         # P(s,t)
         initial_variance = get_variance_at_time(current_off_diagonal_time_point, system_state)
+       
+        function off_diag_solution(t)
+            return initial_variance
+        end
+        variance_tspan = (current_off_diagonal_time_point, current_off_diagonal_time_point)
+        push!(system_state.off_diagonals, [SolutionObject(off_diag_solution, variance_tspan)])
+        push!(system_state.off_diagonal_timepoints,current_off_diagonal_time_point)
 
-        if current_off_diagonal_time_point == next_end_time
-            # variance
-            function off_diag_solution(t)
-                return initial_variance
-            end
-        else
-            off_diag_prob = ODEProblem(
+        interpolation_object = generate_off_diagonal_history_function(current_off_diagonal_time_point, system_state)
+        history(s, t) = interpolation_object(t)
+
+        past_function(t) = interpolation_object(t)
+        history_tspan = (
+            system_state.off_diagonal_timepoints[1],
+            current_off_diagonal_time_point,
+        )
+        pushfirst!(system_state.off_diagonals[end], SolutionObject(past_function, history_tspan))
+
+        if current_off_diagonal_time_point != next_end_time
+
+            off_diag_prob = DDEProblem(
                 off_diagonal_RHS,
                 initial_variance,
+                history,
                 diag_tspan,
-                current_off_diagonal_time_point
+                current_off_diagonal_time_point; constant_lags=[system_state.delay]
             )
 
             off_diag_solution = solve(
                 off_diag_prob,
-                Euler(),
+                MethodOfSteps(Euler()),
                 dt=1.,
                 adaptive=false,
                 saveat=1.,
                 dtmin=1.,
                 dtmax=1.
             )
+
+            push!(system_state.off_diagonals[end],SolutionObject(off_diag_solution, diag_tspan))
         end
-        
-        push!(system_state.off_diagonals, [SolutionObject(off_diag_solution, diag_tspan)])
-        push!(system_state.off_diagonal_timepoints,current_off_diagonal_time_point)
+
         current_off_diagonal_time_point += system_state.off_diagonal_timestep
     end
     return system_state
@@ -595,19 +596,13 @@ function predict_variance_and_off_diagonals!(
              variance_of_noise
     end
 
-    function off_diagonal_RHS(dcovariance, covariance, s, diag_t) # s is the intermediate time index
+    function off_diagonal_RHS(dcovariance, covariance, history, s, diag_t) # s is the intermediate time index
         past_time = diag_t - system_state.delay # t - τ
         past_protein = get_mean_at_time(past_time, system_state)[2]
         
         delayed_jacobian = construct_delayed_jacobian(model_parameters, past_protein)
 
-        # TODO think about this if-else statement, is it right?
-        if s < 0 || past_time < 0
-            covariance_matrix_intermediate_to_past = zeros(2,2)
-        else
-            println(s, ", ",past_time)
-            covariance_matrix_intermediate_to_past = get_off_diagonal_at_time_combination(s, past_time, system_state)
-        end
+        covariance_matrix_intermediate_to_past = history(s, past_time)
 
         dcovariance .= covariance*instant_jacobian' +
              covariance_matrix_intermediate_to_past*delayed_jacobian'
@@ -770,10 +765,25 @@ function get_most_recent_offdiagonal_as_function(system_state)
         most_recent_off_diagonals[off_diagonal_index] = off_diagonal_entry[end].at_time(system_state.current_time)
     end
 
+
     return linear_interpolation(
         copy(system_state.off_diagonal_timepoints),
         most_recent_off_diagonals,
         # extrapolation_bc=Line()
+        )
+end
+
+function generate_off_diagonal_history_function(off_diagonal_time, system_state)
+
+    required_off_diagonals = fill(zeros(2,2), length(system_state.off_diagonal_timepoints))
+
+    for (off_diagonal_index, off_diagonal_entry) in enumerate(system_state.off_diagonals)
+        required_off_diagonals[off_diagonal_index] = off_diagonal_entry[end].at_time(off_diagonal_time)' # transpose
+    end
+
+    return linear_interpolation(
+        copy(system_state.off_diagonal_timepoints),
+        required_off_diagonals,
         )
 end
 
