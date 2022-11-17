@@ -335,14 +335,20 @@ function get_specific_off_diagonal_value_at_time(t, off_diagonal_entry)
     for solution_object in off_diagonal_entry
         start_time = solution_object.tspan[1]
         end_time = solution_object.tspan[end]
-
+        # println(solution_object.tspan)
+        # println("Time: ", t)
         if start_time <= t <= end_time
+            # println("Inside if")
             return solution_object.at_time(t)
         end 
     end
 end
 
 function get_off_diagonal_at_time_combination(time_1, time_2, system_state)
+
+    if time_1 == time_2
+        return get_variance_at_time(time_1, system_state)
+    end
 
     transpose_result = false
     if time_1 > time_2
@@ -353,8 +359,16 @@ function get_off_diagonal_at_time_combination(time_1, time_2, system_state)
     max_time = max(time_1, time_2)
     past_values = fill(zeros(2,2), length(system_state.off_diagonal_timepoints))
 
+    # println()
+    # println("Times: ")
+    # println(time_1,", ",time_2)
+    # println(system_state.off_diagonal_timepoints)
+
+
     for (off_diagonal_index, off_diagonal_entry) in enumerate(system_state.off_diagonals)
+        # println("Off diagonal time, ",system_state.off_diagonal_timepoints[off_diagonal_index])
         this_value = get_specific_off_diagonal_value_at_time(max_time, off_diagonal_entry)
+        # println(this_value)
         if transpose_result
             past_values[off_diagonal_index] = this_value'
         else
@@ -362,7 +376,7 @@ function get_off_diagonal_at_time_combination(time_1, time_2, system_state)
         end
     end
 
-    interpolated_values = LinearInterpolation(
+    interpolated_values = linear_interpolation(
         system_state.off_diagonal_timepoints,
         past_values
     )
@@ -382,6 +396,7 @@ function predict_state_space_mean!(
     function state_space_mean_RHS(du,u,h,p,t)
         past_time = t - system_state.delay # p[7]
         # if past_time >= tspan[1] # history function in case τ < number_of_hidden_states
+        println(past_time)
         past_protein = h(p,past_time)
         # else # otherwise pre defined indexer
             # past_protein = get_mean_at_time(past_time, system_state)[2]
@@ -421,6 +436,17 @@ function propagate_existing_off_diagonals!(
     next_end_time,
 )
     diag_tspan = (current_time, next_end_time)
+    println()
+    println("Propagate, ", diag_tspan)
+    println()
+
+    # for (off_diagonal_time_index, off_diagonal_entry) in enumerate(system_state.off_diagonals)
+    #     println("Time index: ",off_diagonal_time_index)
+    #     println("Off diagonal time: ", system_state.off_diagonal_timepoints[off_diagonal_time_index])
+    #     for solution_object in off_diagonal_entry
+    #         println("    tspan: ", solution_object.tspan)
+    #     end
+    # end
 
     # we want to do P(s,t) -> P(s,t+nΔt) for s = t-τ:t
     for (off_diagonal_index, intermediate_time) in enumerate(system_state.off_diagonal_timepoints)
@@ -462,7 +488,7 @@ function propagate_new_off_diagonals!(
     # we want to do P(s,s) -> P(s,t+nΔt) for s = t:t+Δt
     # TODO
     current_off_diagonal_time_point = last_off_diagonal_timepoint + system_state.off_diagonal_timestep
-    while current_off_diagonal_time_point < next_end_time+1
+    while current_off_diagonal_time_point < next_end_time
         diag_tspan = (current_off_diagonal_time_point, next_end_time)
         
         # P(s,t)
@@ -492,7 +518,6 @@ function propagate_new_off_diagonals!(
             )
         end
         
-        # TODO 
         push!(system_state.off_diagonals, [SolutionObject(off_diag_solution, diag_tspan)])
         push!(system_state.off_diagonal_timepoints,current_off_diagonal_time_point)
         current_off_diagonal_time_point += system_state.off_diagonal_timestep
@@ -577,9 +602,10 @@ function predict_variance_and_off_diagonals!(
         delayed_jacobian = construct_delayed_jacobian(model_parameters, past_protein)
 
         # TODO think about this if-else statement, is it right?
-        if diag_t < 0 || past_time < 0
+        if s < 0 || past_time < 0
             covariance_matrix_intermediate_to_past = zeros(2,2)
         else
+            println(s, ", ",past_time)
             covariance_matrix_intermediate_to_past = get_off_diagonal_at_time_combination(s, past_time, system_state)
         end
 
@@ -659,17 +685,17 @@ function kalman_prediction_step!(
     # move system_state to the next observation for the update step
     system_state = update_current_time_and_observation!(system_state)
 
-    println("Predict")
-    observation_transform = [1. 0.]
-    measurement_variance = 10_000.0
-    println("Current time: ", system_state.current_time)
-    println("mean at 0: ", get_mean_at_time(0.0, system_state))
-    println("mean: ",get_mean_at_time(system_state.current_time, system_state))
-    println("std: ",sqrt(dot(
-            observation_transform,
-            system_state.variances[end].at_time(system_state.current_time) * observation_transform',
-        ) + measurement_variance))
-    println()
+    # println("Predict")
+    # observation_transform = [1. 0.]
+    # measurement_variance = 10_000.0
+    # println("Current time: ", system_state.current_time)
+    # println("mean at 0: ", get_mean_at_time(0.0, system_state))
+    # println("mean: ",get_mean_at_time(system_state.current_time, system_state))
+    # println("std: ",sqrt(dot(
+    #         observation_transform,
+    #         system_state.variances[end].at_time(system_state.current_time) * observation_transform',
+    #     ) + measurement_variance))
+    # println()
 
     return system_state
 end # function
@@ -744,7 +770,7 @@ function get_most_recent_offdiagonal_as_function(system_state)
         most_recent_off_diagonals[off_diagonal_index] = off_diagonal_entry[end].at_time(system_state.current_time)
     end
 
-    return LinearInterpolation(
+    return linear_interpolation(
         copy(system_state.off_diagonal_timepoints),
         most_recent_off_diagonals,
         # extrapolation_bc=Line()
@@ -821,15 +847,16 @@ function kalman_update_step!(
         helper_inverse,
     )
 
-    println("Update")
-    println("Current time: ", system_state.current_time)
-    println("mean at 0: ", get_mean_at_time(0.0,system_state))
-    println("mean: ", system_state.means[end].at_time(system_state.current_time))
-    println("std: ",sqrt(dot(
-            observation_transform,
-            system_state.variances[end].at_time(system_state.current_time) * observation_transform',
-        ) + measurement_variance))
-    println()
+    # println("Update")
+    # println("Current time: ", system_state.current_time)
+    # println("mean at 0: ", get_mean_at_time(0.0,system_state))
+    # println("var at 0: ", get_variance_at_time(0.0,system_state))
+    # println("mean: ", system_state.means[end].at_time(system_state.current_time))
+    # println("std: ",sqrt(dot(
+    #         observation_transform,
+    #         system_state.variances[end].at_time(system_state.current_time) * observation_transform',
+    #     ) + measurement_variance))
+    # println()
 
     return system_state
 end
