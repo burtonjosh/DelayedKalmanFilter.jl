@@ -131,7 +131,6 @@ function kalman_filter(
                 measurement_variance,
             )
 
-        # TODO the update step on the last loop iteration is redundant for likelihood calculation
         system_state = kalman_update_step!(
             system_state,
             measurement_variance,
@@ -410,12 +409,12 @@ function predict_state_space_mean!(
     )
     mean_solution = solve(
         mean_prob,
-        MethodOfSteps(Euler()),
-        dt=1.,
-        adaptive=false,
-        saveat=1.,
-        dtmin=1.,
-        dtmax=1.
+        MethodOfSteps(Tsit5()),
+        # dt=1.,
+        # adaptive=false,
+        # saveat=1.,
+        # dtmin=1.,
+        # dtmax=1.
     )
     mean_solution_object = SolutionObject(mean_solution, tspan)
     push!(system_state.means, mean_solution_object)
@@ -451,12 +450,12 @@ function propagate_existing_off_diagonals!(
 
         off_diag_solution = solve(
             off_diag_prob,
-            MethodOfSteps(Euler()),
-            dt=1.,
-            adaptive=false,
-            saveat=1.,
-            dtmin=1.,
-            dtmax=1.
+            MethodOfSteps(Tsit5()),
+            # dt=1.,
+            # adaptive=false,
+            # saveat=1.,
+            # dtmin=1.,
+            # dtmax=1.
         )
 
         push!(system_state.off_diagonals[off_diagonal_index], SolutionObject(off_diag_solution, diag_tspan))
@@ -473,7 +472,6 @@ function propagate_new_off_diagonals!(
     next_end_time,
 )
     # we want to do P(s,s) -> P(s,t+nΔt) for s = t:t+Δt
-    # TODO
     current_off_diagonal_time_point = last_off_diagonal_timepoint + system_state.off_diagonal_timestep
     while current_off_diagonal_time_point <= next_end_time
         diag_tspan = (current_off_diagonal_time_point, next_end_time)
@@ -510,12 +508,12 @@ function propagate_new_off_diagonals!(
 
             off_diag_solution = solve(
                 off_diag_prob,
-                MethodOfSteps(Euler()),
-                dt=1.,
-                adaptive=false,
-                saveat=1.,
-                dtmin=1.,
-                dtmax=1.
+                MethodOfSteps(Tsit5()),
+                # dt=1.,
+                # adaptive=false,
+                # saveat=1.,
+                # dtmin=1.,
+                # dtmax=1.
             )
 
             push!(system_state.off_diagonals[end],SolutionObject(off_diag_solution, diag_tspan))
@@ -544,12 +542,12 @@ function propagate_variance!(
     
     variance_solution = solve(
         variance_prob,
-        Euler(),
-        dt=1.,
-        adaptive=false,
-        saveat=1.,
-        dtmin=1.,
-        dtmax=1.
+        Tsit5(),
+        # dt=1.,
+        # adaptive=false,
+        # saveat=1.,
+        # dtmin=1.,
+        # dtmax=1.
     )
     
     variance_solution_object = SolutionObject(variance_solution, tspan)
@@ -608,8 +606,6 @@ function predict_variance_and_off_diagonals!(
              covariance_matrix_intermediate_to_past*delayed_jacobian'
     end
 
-    # TODO
-    # implement a while loop here
     current_time = copy(system_state.current_time)
     last_off_diagonal_timepoint = system_state.off_diagonal_timepoints[end]
     next_observation_time = system_state.current_time + system_state.observation_time_step
@@ -640,9 +636,6 @@ function predict_variance_and_off_diagonals!(
     end
 
     return system_state
-    # in the case of τ < observation_time_step, we have to do the below procedure multiple times (ceil(observation/τ) times)
-    # since otherwise certain P(t-τ,s) values will not exist #TODO bad explanation
-    # initial_condition_times = Int.([current_number_of_states + states.discrete_delay*x for x in 0:ceil(states.number_of_hidden_states/states.discrete_delay)-1])
 end
 
 """
