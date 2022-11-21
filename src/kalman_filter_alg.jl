@@ -409,12 +409,12 @@ function predict_state_space_mean!(
     )
     mean_solution = solve(
         mean_prob,
-        MethodOfSteps(Tsit5()),
-        # dt=1.,
-        # adaptive=false,
-        # saveat=1.,
-        # dtmin=1.,
-        # dtmax=1.
+        MethodOfSteps(Euler()),
+        dt=1.,
+        adaptive=false,
+        saveat=1.,
+        dtmin=1.,
+        dtmax=1.
     )
     mean_solution_object = SolutionObject(mean_solution, tspan)
     push!(system_state.means, mean_solution_object)
@@ -450,12 +450,12 @@ function propagate_existing_off_diagonals!(
 
         off_diag_solution = solve(
             off_diag_prob,
-            MethodOfSteps(Tsit5()),
-            # dt=1.,
-            # adaptive=false,
-            # saveat=1.,
-            # dtmin=1.,
-            # dtmax=1.
+            MethodOfSteps(Euler()),
+            dt=1.,
+            adaptive=false,
+            saveat=1.,
+            dtmin=1.,
+            dtmax=1.
         )
 
         push!(system_state.off_diagonals[off_diagonal_index], SolutionObject(off_diag_solution, diag_tspan))
@@ -508,12 +508,12 @@ function propagate_new_off_diagonals!(
 
             off_diag_solution = solve(
                 off_diag_prob,
-                MethodOfSteps(Tsit5()),
-                # dt=1.,
-                # adaptive=false,
-                # saveat=1.,
-                # dtmin=1.,
-                # dtmax=1.
+                MethodOfSteps(Euler()),
+                dt=1.,
+                adaptive=false,
+                saveat=1.,
+                dtmin=1.,
+                dtmax=1.
             )
 
             push!(system_state.off_diagonals[end],SolutionObject(off_diag_solution, diag_tspan))
@@ -542,12 +542,12 @@ function propagate_variance!(
     
     variance_solution = solve(
         variance_prob,
-        Tsit5(),
-        # dt=1.,
-        # adaptive=false,
-        # saveat=1.,
-        # dtmin=1.,
-        # dtmax=1.
+        Euler(),
+        dt=1.,
+        adaptive=false,
+        saveat=1.,
+        dtmin=1.,
+        dtmax=1.
     )
     
     variance_solution_object = SolutionObject(variance_solution, tspan)
@@ -570,6 +570,7 @@ function predict_variance_and_off_diagonals!(
     )
 
     instant_jacobian = construct_instant_jacobian(model_parameters)
+    # println("test: ", get_off_diagonal_at_time_combination(-1,-1,system_state))
     
     function variance_RHS(dvariance, current_variance, params, t)
         past_time = t - system_state.delay
@@ -577,11 +578,7 @@ function predict_variance_and_off_diagonals!(
         current_mean = get_mean_at_time(t, system_state)
 
         # P(t-τ, t)
-        if past_time < 0 || t < 0
-            past_to_now_diagonal_variance = zeros(2,2)
-        else
-            past_to_now_diagonal_variance = get_off_diagonal_at_time_combination(past_time, t, system_state)
-        end
+        past_to_now_diagonal_variance = get_off_diagonal_at_time_combination(past_time, t, system_state)
         
         delayed_jacobian = construct_delayed_jacobian(model_parameters, past_protein)
 
@@ -704,9 +701,12 @@ function update_mean!(
         adaptation_coefficient(t)*( observation -
             dot(observation_transform, most_recent_mean) )
     end
-    for index in 1:length(system_state.means) # TODO don't need to update everything -- fix this
+    
+    # for index in 1:length(system_state.means) # TODO don't need to update everything -- fix this
+    for index in max(1, length(system_state.means) - 2):length(system_state.means) # TODO tidy up range
         system_state.means[index].at_time = system_state.means[index].at_time + update_addition_function
     end
+    # system_state.means[end].at_time = system_state.means[end].at_time + update_addition_function
     
     return system_state
 end
@@ -721,9 +721,13 @@ function update_variance!(
         return -most_recent_off_diagonal(t)*observation_transform'*observation_transform*most_recent_off_diagonal(t)'*helper_inverse
     end
 
-    for index in 1:length(system_state.variances) # TODO don't need to update everything -- fix this
-        system_state.variances[index].at_time = system_state.variances[index].at_time + update_addition_function
-    end
+    # for index in 1:length(system_state.variances) # TODO don't need to update everything -- fix this
+    # for index in max(1, length(system_state.variances) - 1):length(system_state.variances) # TODO tidy up range
+    #     system_state.variances[index].at_time = system_state.variances[index].at_time + update_addition_function
+    # end
+
+    # TODO figure out what is going on here
+    system_state.variances[end].at_time = system_state.variances[end].at_time + update_addition_function
 
     return system_state
 end
@@ -744,7 +748,10 @@ function update_off_diagonals!(
             most_recent_off_diagonal(t)' * helper_inverse
         end
 
-        for index in 1:length(off_diagonal_entry) # TODO don't need to update everything -- fix this
+        # TODO Figure this out
+
+        # for index in 1:length(off_diagonal_entry) # TODO don't need to update everything -- fix this
+        for index in max(1, length(off_diagonal_entry) - 4):length(off_diagonal_entry) # TODO don't need to update everything -- fix this
             off_diagonal_entry[index].at_time = off_diagonal_entry[index].at_time + update_addition_function
         end
     end

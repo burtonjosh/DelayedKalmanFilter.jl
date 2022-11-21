@@ -8,19 +8,22 @@ using Test
         readdlm(string(loading_path, "kalman_filter_test_trace_observations.csv"), ',')
     model_parameters = [10000.0,5.0,log(2)/30,log(2)/90,1.0,1.0,29.0]
     measurement_variance = 10000.0
-    mean, variance, _, distributions =
+    system_state, distributions =
         kalman_filter(protein_at_observations, model_parameters, measurement_variance)
 
-    discrete_delay = ceil(Int,model_parameters[end])
-    number_of_hidden_states = protein_at_observations[2,1] - protein_at_observations[1,1]
-    length_of_mean = ceil(Int,number_of_hidden_states/discrete_delay) + ceil(Int,discrete_delay/number_of_hidden_states)
+    pd = readdlm(string(loading_path, "python_distributions.txt"));
+    length_of_mean = first(size(protein_at_observations))
+    last_time, last_protein = protein_at_observations[end, :]
 
     # check arrays are correct shape
-    @test length(mean) ==
-          length_of_mean#(protein_at_observations[end, 1] + 1 + model_parameters[7], 3)
-    @test size(variance) == (
-        (protein_at_observations[end, 1] + 1 + model_parameters[7]) * 2,
-        (protein_at_observations[end, 1] + 1 + model_parameters[7]) * 2,
-    )
+    @test length(system_state.means) == length_of_mean
+    @test length(system_state.variances) == length_of_mean
     @test size(distributions, 1) == size(protein_at_observations, 1)
+
+    # check system_state finished on final observation
+    @test system_state.current_time == last_time
+    @test system_state.current_observation == last_protein
+
+    # check output is same as python code
+    @test distsributions ≈ pd
 end
