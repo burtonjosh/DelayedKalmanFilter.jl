@@ -22,7 +22,7 @@ Returns
 """
 function calculate_log_likelihood_at_parameter_point(
     protein_at_observations::Matrix{<:AbstractFloat},
-    model_parameters::Vector{<:AbstractFloat},
+    model_parameters,#::Vector{<:AbstractFloat},
     measurement_variance::AbstractFloat,
 )
     size(protein_at_observations, 2) == 2 ||

@@ -1,20 +1,20 @@
-mutable struct SystemState
-    means # array of sol objects
-    variances # array of sol objects
-    off_diagonals # circular buffer with entries which are arrays
-    off_diagonal_timepoints # the s values corresponding to the entries in off_diagonals
-    delay # Float64
-    off_diagonal_timestep # Float64
-    observations # array
-    observation_time_points # array
-    observation_time_step # Integer
-    current_time # Integer
-    current_observation # Float64
+mutable struct SolutionObject
+    at_time # Function (1-d continuous)
+    tspan # Tuple{Float64, Float64}
 end
 
-mutable struct SolutionObject
-    at_time # 1-d function
-    tspan # tuple (t_start, t_end)
+mutable struct SystemState{T<:AbstractFloat}
+    means::AbstractVector{DelayedKalmanFilter.SolutionObject}
+    variances::AbstractVector{DelayedKalmanFilter.SolutionObject}
+    off_diagonals::CircularBuffer{AbstractArray}
+    off_diagonal_timepoints::CircularBuffer{T}
+    delay::T
+    off_diagonal_timestep::T
+    observations::AbstractVector{T}
+    observation_time_points::AbstractVector{T}
+    observation_time_step::T
+    current_time::T
+    current_observation::T
 end
 
 """
@@ -42,10 +42,10 @@ end
 Update the current time and observation of the system state
 """
 function update_current_time_and_observation!(
-    system_state::SystemState
+    system_state::SystemState,
+    observation_index,
 )
     system_state.current_time += system_state.observation_time_step
-    observation_index = (system_state.current_time ÷ system_state.observation_time_step) + 1
     system_state.current_observation = system_state.observations[observation_index]
     return system_state
 end
@@ -82,7 +82,6 @@ copy numbers. This implements the filter described by Calderazzo et al., Bioinfo
 julia> using DelayedKalmanFilter
 
 julia> protein = [0. 105.; 10. 100.; 20. 98.]; # times are 0., 10., 20., and protein levels are 105., 100., and 98. respectively
-
 julia> model_parameters = [100.0, 5.0, 0.1, 0.1, 1.0, 1.0, 15.0];
 
 julia> measurement_variance = 1000.0;
@@ -95,13 +94,13 @@ julia> system_state, distributions = kalman_filter(
 
 julia> distributions[1,:]
 2-element Vector{Float64}:
-  77.80895986786031
-  8780.895986786032
+   77.80895986786031
+ 8780.895986786032
 ```
 """
 function kalman_filter(
     protein_at_observations::Matrix{<:AbstractFloat},
-    model_parameters::Vector{<:AbstractFloat},
+    model_parameters,#::Vector{<:AbstractFloat},
     measurement_variance::AbstractFloat;
     off_diagonal_timestep::AbstractFloat=1.0,
 )
@@ -122,6 +121,7 @@ function kalman_filter(
         system_state = kalman_prediction_step!(
             system_state,
             model_parameters,
+            observation_index,
         )
 
         # between the prediction and update steps we record the predicted mean and variance our likelihood
@@ -188,7 +188,7 @@ function initialise_off_diagonals(
     protein_scaling = 100.0,
 )
     number_of_offdiagonal_timepoints = round(Int,τ/off_diagonal_timestep) + 1
-    off_diagonals = CircularBuffer{Array}(number_of_offdiagonal_timepoints)
+    off_diagonals = CircularBuffer{AbstractArray}(number_of_offdiagonal_timepoints)
     off_diagonal_timepoints = CircularBuffer{Float64}(number_of_offdiagonal_timepoints)
 
     for timepoint in LinRange(-τ, 0, number_of_offdiagonal_timepoints)
@@ -260,11 +260,11 @@ function kalman_filter_state_space_initialisation(
     variances = initialise_state_space_variance(steady_state, τ)
     off_diagonals, off_diagonal_timepoints = initialise_off_diagonals(steady_state, τ, off_diagonal_timestep)
 
-    observation_time_step = Int(protein_at_observations[2,1] - protein_at_observations[1,1])
-    current_time = Int(protein_at_observations[1,1])
+    observation_time_step = protein_at_observations[2,1] - protein_at_observations[1,1]
+    current_time = protein_at_observations[1,1]
     current_observation = protein_at_observations[1,2]
 
-    system_state = SystemState(
+    system_state = SystemState{typeof(observation_time_step)}(
         means,
         variances,
         off_diagonals,
@@ -280,7 +280,7 @@ function kalman_filter_state_space_initialisation(
 
     # initialise distributions
     predicted_observation_distributions =
-        zeros(length(system_state.observations), 2)
+        zeros(typeof(τ), length(system_state.observations), 2)
     predicted_observation_distributions[1,:] .= distribution_prediction(
         system_state,
         observation_transform,
@@ -399,7 +399,7 @@ function predict_state_space_mean!(
     end
 
     protein_history(p,t) = get_mean_at_time(t, system_state)[2]
-    tspan = (Float64(system_state.current_time), Float64(system_state.current_time + system_state.observation_time_step))
+    tspan = (system_state.current_time, system_state.current_time + system_state.observation_time_step)
     mean_prob = DDEProblem(
         state_space_mean_RHS,
         get_mean_at_time(system_state.current_time, system_state),
@@ -476,7 +476,7 @@ function propagate_new_off_diagonals!(
     while current_off_diagonal_time_point <= next_end_time
         diag_tspan = (current_off_diagonal_time_point, next_end_time)
         
-        # P(s,t)
+        # P(s,s)
         initial_variance = get_variance_at_time(current_off_diagonal_time_point, system_state)
        
         function off_diag_solution(t)
@@ -570,7 +570,6 @@ function predict_variance_and_off_diagonals!(
     )
 
     instant_jacobian = construct_instant_jacobian(model_parameters)
-    # println("test: ", get_off_diagonal_at_time_combination(-1,-1,system_state))
     
     function variance_RHS(dvariance, current_variance, params, t)
         past_time = t - system_state.delay
@@ -597,7 +596,11 @@ function predict_variance_and_off_diagonals!(
         
         delayed_jacobian = construct_delayed_jacobian(model_parameters, past_protein)
 
-        covariance_matrix_intermediate_to_past = history(s, past_time)
+        if s < 0 || past_time < 0
+            covariance_matrix_intermediate_to_past = zeros(2,2)
+        else
+            covariance_matrix_intermediate_to_past = history(s, past_time)
+        end
 
         dcovariance .= covariance*instant_jacobian' +
              covariance_matrix_intermediate_to_past*delayed_jacobian'
@@ -656,6 +659,7 @@ approximated using a forward Euler scheme.
 function kalman_prediction_step!(
     system_state,
     model_parameters,
+    observation_index,
 )
     system_state = predict_state_space_mean!(
         system_state,
@@ -668,19 +672,10 @@ function kalman_prediction_step!(
     )
 
     # move system_state to the next observation for the update step
-    system_state = update_current_time_and_observation!(system_state)
-
-    # println("Predict")
-    # observation_transform = [1. 0.]
-    # measurement_variance = 10_000.0
-    # println("Current time: ", system_state.current_time)
-    # println("mean at 0: ", get_mean_at_time(0.0, system_state))
-    # println("mean: ",get_mean_at_time(system_state.current_time, system_state))
-    # println("std: ",sqrt(dot(
-    #         observation_transform,
-    #         system_state.variances[end].at_time(system_state.current_time) * observation_transform',
-    #     ) + measurement_variance))
-    # println()
+    system_state = update_current_time_and_observation!(
+        system_state,
+        observation_index,
+    )
 
     return system_state
 end # function
@@ -702,8 +697,8 @@ function update_mean!(
             dot(observation_transform, most_recent_mean) )
     end
     
-    # for index in 1:length(system_state.means) # TODO don't need to update everything -- fix this
-    for index in max(1, length(system_state.means) - 2):length(system_state.means) # TODO tidy up range
+    for index in 1:length(system_state.means) # TODO don't need to update everything -- fix this
+    # for index in max(1, length(system_state.means) - 2):length(system_state.means) # TODO tidy up range
         system_state.means[index].at_time = system_state.means[index].at_time + update_addition_function
     end
     # system_state.means[end].at_time = system_state.means[end].at_time + update_addition_function
@@ -721,13 +716,13 @@ function update_variance!(
         return -most_recent_off_diagonal(t)*observation_transform'*observation_transform*most_recent_off_diagonal(t)'*helper_inverse
     end
 
-    # for index in 1:length(system_state.variances) # TODO don't need to update everything -- fix this
+    for index in 1:length(system_state.variances) # TODO don't need to update everything -- fix this
     # for index in max(1, length(system_state.variances) - 1):length(system_state.variances) # TODO tidy up range
-    #     system_state.variances[index].at_time = system_state.variances[index].at_time + update_addition_function
-    # end
+        system_state.variances[index].at_time = system_state.variances[index].at_time + update_addition_function
+    end
 
     # TODO figure out what is going on here
-    system_state.variances[end].at_time = system_state.variances[end].at_time + update_addition_function
+    # system_state.variances[end].at_time = system_state.variances[end].at_time + update_addition_function
 
     return system_state
 end
@@ -750,8 +745,8 @@ function update_off_diagonals!(
 
         # TODO Figure this out
 
-        # for index in 1:length(off_diagonal_entry) # TODO don't need to update everything -- fix this
-        for index in max(1, length(off_diagonal_entry) - 4):length(off_diagonal_entry) # TODO don't need to update everything -- fix this
+        for index in 1:length(off_diagonal_entry) # TODO don't need to update everything -- fix this
+        # for index in max(1, length(off_diagonal_entry) - 4):length(off_diagonal_entry) # TODO don't need to update everything -- fix this
             off_diagonal_entry[index].at_time = off_diagonal_entry[index].at_time + update_addition_function
         end
     end
@@ -856,17 +851,6 @@ function kalman_update_step!(
         observation_transform,
         helper_inverse,
     )
-
-    # println("Update")
-    # println("Current time: ", system_state.current_time)
-    # println("mean at 0: ", get_mean_at_time(0.0,system_state))
-    # println("var at 0: ", get_variance_at_time(0.0,system_state))
-    # println("mean: ", system_state.means[end].at_time(system_state.current_time))
-    # println("std: ",sqrt(dot(
-    #         observation_transform,
-    #         system_state.variances[end].at_time(system_state.current_time) * observation_transform',
-    #     ) + measurement_variance))
-    # println()
 
     return system_state
 end

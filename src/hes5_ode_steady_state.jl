@@ -11,18 +11,29 @@ Calculate the Hill function for a given protein molecule number, repression thre
 
 # Arguments
 
-- `protein::Real`
+- `protein::AbstractFloat`
 
-- `P₀::Real`
+- `P₀::AbstractFloat`
 
-- `h::Real`
+- `h::AbstractFloat`
 """
 function hill_function(protein, P₀, h)
     return (P₀^h) / (protein^h + P₀^h)
 end
 
+"""
+The partial derivative of the Hill function with respect to the protein molecule number.
+
+# Arguments
+
+- `protein::AbstractFloat`
+
+- `P₀::AbstractFloat`
+
+- `h::AbstractFloat`
+"""
 function ∂hill∂p(protein, P₀, h)
-    return ForwardDiff.derivative(protein -> hill_function(protein, P₀, h), protein)
+    return - (h * P₀^h * protein^(h-1)) / (protein^h + P₀^h)^2
 end
 
 """
@@ -30,21 +41,21 @@ Calculate the steady state of the Hes5 ODE system, for a specific set of paramet
 
 # Arguments
 
-- `P₀::Float64`
+- `P₀::AbstractFloat`
 
-- `h::Float64`
+- `h::AbstractFloat`
 
-- `μₘ::Float64`
+- `μₘ::AbstractFloat`
 
-- `μₚ::Float64`
+- `μₚ::AbstractFloat`
 
-- `αₘ::Float64`
+- `αₘ::AbstractFloat`
 
-- `αₚ::Float64`
+- `αₚ::AbstractFloat`
 
 # Returns
 
-- `steady_state_solution::Array{Float64,1}`: A 2-element array, giving the steady state for the mRNA and protein respectively.
+- `steady_state_solution::Array{AbstractFloat,1}`: A 2-element array, giving the steady state for the mRNA and protein respectively.
 """
 function calculate_steady_state_of_ode(
     model_params;

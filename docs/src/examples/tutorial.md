@@ -111,3 +111,22 @@ Using a different parameter set should give us a smaller value for the likelihoo
 p_wrong = [2407.57, 3.4, log(2)/30, log(2)/90, 5.6, 21.7, 12.];
 calculate_log_likelihood_at_parameter_point(protein_observations, p_wrong, measurement_std^2)
 ```
+
+# TODO - nice looking plot
+```@example tutorial
+plot(unobserved_data[:,3], label="Unobserved data")
+
+scatter!(protein_at_observations[:,1], protein_at_observations[:,2], label="Observations")
+
+plot!(means,ribbon=stds,fillalpha=.1,
+           label="Kalman filter (with 1SD and 2SD)",
+           linewidth=2,
+           color=TolVibrantMagenta)
+
+plot!(means,ribbon=2*stds,fillalpha=.1,
+           label=false,
+           linewidth=2,
+           color=TolVibrantMagenta)
+
+plot!(xlabel="Time (minutes)", ylabel="Protein molecule number")
+```
