@@ -386,13 +386,13 @@ function predict_state_space_mean!(system_state, model_parameters)
 
     function state_space_mean_RHS(du, u, h, p, t)
         past_time = t - system_state.delay
-        past_protein = h(p, past_time)
+        past_protein = last(h(p, past_time))
 
         du .=
             [-p[3] 0; p[6] -p[4]] * u + [p[5] * hill_function(past_protein, p[1], p[2]); 0]
     end
 
-    protein_history(p, t) = get_mean_at_time(t, system_state)[2]
+    protein_history(p, t) = get_mean_at_time(t, system_state)
     tspan = (
         system_state.current_time,
         system_state.current_time + system_state.observation_time_step,
@@ -630,11 +630,10 @@ function predict_variance_and_off_diagonals!(system_state, model_parameters)
     current_time = system_state.current_time
     last_off_diagonal_timepoint = system_state.off_diagonal_timepoints[end]
     next_observation_time = system_state.current_time + system_state.observation_time_step
-
-    while current_time < next_observation_time
-        next_end_time =
+    next_end_time =
             min(next_observation_time, last_off_diagonal_timepoint + system_state.delay)
 
+    while current_time < next_observation_time
         system_state = propagate_existing_off_diagonals!(
             system_state,
             off_diagonal_RHS,
@@ -651,10 +650,11 @@ function predict_variance_and_off_diagonals!(system_state, model_parameters)
         system_state = propagate_new_off_diagonals!(
             system_state,
             off_diagonal_RHS,
-            last_off_diagonal_timepoint,
+            current_time,
             next_end_time,
         )
         current_time = next_end_time
+        next_end_time = min(next_observation_time, current_time + system_state.delay)
     end
 
     return system_state
@@ -732,14 +732,14 @@ function update_variance!(
                helper_inverse
     end
 
-    # for index in 1:length(system_state.variances) # TODO don't need to update everything -- fix this
+    for index in 1:length(system_state.variances) # TODO don't need to update everything -- fix this
     # for index in max(1, length(system_state.variances) - 1):length(system_state.variances) # TODO tidy up range
-    #     system_state.variances[index].at_time = system_state.variances[index].at_time + update_addition_function
-    # end
+        system_state.variances[index].at_time = system_state.variances[index].at_time + update_addition_function
+    end
 
     # TODO figure out what is going on here
-    system_state.variances[end].at_time =
-        system_state.variances[end].at_time + update_addition_function
+    # system_state.variances[end].at_time =
+        # system_state.variances[end].at_time + update_addition_function
 
     return system_state
 end
@@ -764,13 +764,20 @@ function update_off_diagonals!(
         end
 
         # TODO Figure this out
-        delay_length =
-            max(2, ceil(Int, system_state.delay / system_state.observation_time_step) + 1)
-        for index =
-            max(1, length(off_diagonal_entry) - delay_length):length(off_diagonal_entry)
+        # delay_length =
+        #     max(2, ceil(Int, system_state.delay / system_state.observation_time_step) + 1)
+        # for index =
+        #     max(1, length(off_diagonal_entry) - delay_length):length(off_diagonal_entry)
+        #     off_diagonal_entry[index].at_time =
+        #         off_diagonal_entry[index].at_time + update_addition_function
+        # end
+
+        for index in 1:length(off_diagonal_entry) # TODO don't need to update everything -- fix this
+        # for index in max(1, length(system_state.variances) - 1):length(system_state.variances) # TODO tidy up range
             off_diagonal_entry[index].at_time =
-                off_diagonal_entry[index].at_time + update_addition_function
+            off_diagonal_entry[index].at_time + update_addition_function
         end
+
     end
     return system_state
 end
