@@ -6,6 +6,7 @@ using DifferentialEquations
 using Distributions
 using Interpolations
 using LinearAlgebra
+using StaticArrays
 
 include("kalman_filter_alg.jl")
 include("log_likelihood.jl")
