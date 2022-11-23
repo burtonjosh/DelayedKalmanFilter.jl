@@ -34,5 +34,7 @@ function calculate_log_likelihood_at_parameter_point(
         kalman_filter(protein_at_observations, model_parameters, measurement_variance)
     observations = protein_at_observations[:, 2]
 
-    return sum(logpdf.(Normal.(distributions[:,1],sqrt.(distributions[:,2])), observations))
+    return sum(
+        logpdf.(Normal.(distributions[:, 1], sqrt.(distributions[:, 2])), observations),
+    )
 end

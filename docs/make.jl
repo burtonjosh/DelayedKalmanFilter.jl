@@ -1,7 +1,12 @@
 using DelayedKalmanFilter
 using Documenter
 
-DocMeta.setdocmeta!(DelayedKalmanFilter, :DocTestSetup, :(using DelayedKalmanFilter); recursive=true)
+DocMeta.setdocmeta!(
+    DelayedKalmanFilter,
+    :DocTestSetup,
+    :(using DelayedKalmanFilter);
+    recursive = true,
+)
 
 makedocs(;
     modules = [DelayedKalmanFilter],
@@ -15,9 +20,15 @@ makedocs(;
     ),
     pages = [
         "Home" => "index.md",
-        "Examples" => ["Tutorial" => "examples/tutorial.md", "Parameter Estimation" => "examples/parameter-estimation.md"],
-        "Library" => ["Public" => "lib/public.md", "Internals" => "lib/internals.md"]
+        "Examples" => [
+            "Tutorial" => "examples/tutorial.md",
+            "Parameter Estimation" => "examples/parameter-estimation.md",
         ],
+        "Library" => ["Public" => "lib/public.md", "Internals" => "lib/internals.md"],
+    ],
 )
 
-deploydocs(; repo = "github.com/burtonjosh/DelayedKalmanFilter.jl", devbranch="diffeq_new")
+deploydocs(;
+    repo = "github.com/burtonjosh/DelayedKalmanFilter.jl",
+    devbranch = "diffeq_new",
+)
