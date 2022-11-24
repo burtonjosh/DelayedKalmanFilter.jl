@@ -21,10 +21,10 @@ Returns
 - `log_likelihood::AbstractFloat`.
 """
 function calculate_log_likelihood_at_parameter_point(
-    protein_at_observations::Matrix{<:AbstractFloat},
+    protein_at_observations::Matrix{T},
     model_parameters,#::Vector{<:AbstractFloat},
-    measurement_variance::AbstractFloat,
-)
+    measurement_variance::T,
+) where T <: AbstractFloat
     size(protein_at_observations, 2) == 2 ||
         throw(ArgumentError("observation matrix must be N × 2"))
 

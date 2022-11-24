@@ -21,7 +21,11 @@ end
 Calculate the mean and standard deviation of the Normal approximation of the state space for a given
 time point in the Kalman filtering algorithm and return it as an array.
 """
-function distribution_prediction(system_state, observation_transform, measurement_variance)
+function distribution_prediction(
+    system_state::SystemState,
+    observation_transform::Matrix{T},
+    measurement_variance::T
+    ) where T <: AbstractFloat
     mean_prediction = system_state.means[end].at_time(system_state.current_time)[2]
     last_predicted_covariance_matrix =
         system_state.variances[end].at_time(system_state.current_time)
@@ -38,7 +42,10 @@ end
 """
 Update the current time and observation of the system state
 """
-function update_current_time_and_observation!(system_state::SystemState, observation_index)
+function update_current_time_and_observation!(
+    system_state::SystemState,
+    observation_index::T,
+    ) where T <: Integer
     system_state.current_time += system_state.observation_time_step
     system_state.current_observation = system_state.observations[observation_index]
     return system_state
@@ -46,29 +53,33 @@ end
 
 """
     kalman_filter(
-        protein_at_observations::Matrix{<:AbstractFloat},
-        model_parameters::Vector{<:AbstractFloat},
-        measurement_variance::AbstractFloat,
-    )
+        protein_at_observations::Matrix{T},
+        model_parameters::Vector{T},
+        measurement_variance::T;
+        off_diagonal_timestep::T = 1.0,
+    ) where T
 
 A Kalman filter for a delay-adjusted non-linear stochastic process, based on observation of protein
 copy numbers. This implements the filter described by Calderazzo et al., Bioinformatics (2018).
 
 # Arguments
 
-- `protein_at_observations::Matrix{<:AbstractFloat}`: Observed protein. The dimension is N x 2, where N is the number of observation time points.
+- `protein_at_observations`: Observed protein. The dimension is N x 2, where N is the number of observation time points.
     The first column is the time, and the second column is the observed protein copy number. The filter assumes that observations are generated with a fixed, regular time interval.
 
-- `model_parameters::Vector{<:AbstractFloat}`: A vector containing the model parameters in the following order:
+- `model_parameters`: A vector containing the model parameters in the following order:
     repression threshold (`P₀`), hill coefficient (`h`), mRNA degradation rate (`μₘ`), protein degradation rate (`μₚ`), basal transcription rate (`αₘ`),
     translation rate (`αₚ`), and time delay (`τ`).
 
-- `measurement_variance::AbstractFloat`: The variance in our measurement. This is given by ``Σ_ϵ`` in Calderazzo et. al. (2018).
+- `measurement_variance`: The variance in our measurement. This is given by ``Σ_ε``  in Calderazzo et. al. (2018).
+
+- `off_diagonal_timestep`: The time step for the off diagonal component. This parameter determines how many DDE's
+    we need to solve in the [`predict_variance_and_off_diagonals!`](@ref) function.
 
 # Returns
 - `system_state::SystemState`: 
 
-- `predicted_observation_distributions::Matrix{Float64}`: A matrix of size N x 2. The entries in the first column are the predicted state
+- `predicted_observation_distributions::Matrix{<:AbstractFloat}`: A matrix of size N x 2. The entries in the first column are the predicted state
  space mean and the entries in the second column are the predicted state space variance for each observation.
 
 # Example
@@ -94,11 +105,11 @@ julia> distributions[1,:]
 ```
 """
 function kalman_filter(
-    protein_at_observations::Matrix{<:AbstractFloat},
-    model_parameters,#::Vector{<:AbstractFloat},
-    measurement_variance::AbstractFloat;
-    off_diagonal_timestep::AbstractFloat = 1.0,
-)
+    protein_at_observations::Matrix{T},
+    model_parameters::Vector{T},
+    measurement_variance::T;
+    off_diagonal_timestep::T = 1.0,
+) where T # <: AbstractFloat # TODO check if this works with autodiff
     # F in the paper
     observation_transform = [0.0 1.0]
 
@@ -223,7 +234,9 @@ and then updates them with kalman_update_step.
     repression threshold, hill coefficient, mRNA degradation rate,protein degradation rate, basal transcription rate,
     translation rate, time delay.
 
-- `observation_transform`: A 1 x 2 matrix corresponding to the transformation from observed data to molecule number, for mRNA and protein
+- `observation_transform`: A 1 x 2 matrix corresponding to the transformation from ob
+
+served data to molecule number, for mRNA and protein
     respectively.
 
 - `measurement_variance`: The variance in our measurement. This is given by Sigma epsilon in Calderazzo et. al. (2018).
@@ -235,12 +248,12 @@ and then updates them with kalman_update_step.
  space mean and the entries in the second column are the predicted state space variance for each observation.
 """
 function kalman_filter_state_space_initialisation(
-    protein_at_observations,
-    model_parameters,
-    observation_transform,
-    measurement_variance,
-    off_diagonal_timestep,
-)
+    protein_at_observations::Matrix{T},
+    model_parameters::Vector{T},
+    observation_transform::Matrix{T},
+    measurement_variance::T,
+    off_diagonal_timestep::T,
+) where T # <: AbstractFloat
     steady_state = calculate_steady_state_of_ode(model_parameters)
 
     # construct system state space
@@ -712,8 +725,7 @@ function update_mean!(
     delay_length =
         max(1, floor(Int, system_state.delay / system_state.observation_time_step))
     for index = max(1, length(system_state.means) - delay_length):length(system_state.means)
-        system_state.means[index].at_time =
-            system_state.means[index].at_time + update_addition_function
+        system_state.means[index].at_time += update_addition_function
     end
 
     return system_state
@@ -735,7 +747,7 @@ function update_variance!(
 
     for index in 1:length(system_state.variances) # TODO don't need to update everything -- fix this
     # for index in max(1, length(system_state.variances) - 1):length(system_state.variances) # TODO tidy up range
-        system_state.variances[index].at_time = system_state.variances[index].at_time + update_addition_function
+        system_state.variances[index].at_time += update_addition_function
     end
 
     # TODO figure out what is going on here
@@ -775,15 +787,14 @@ function update_off_diagonals!(
 
         for index in 1:length(off_diagonal_entry) # TODO don't need to update everything -- fix this
         # for index in max(1, length(system_state.variances) - 1):length(system_state.variances) # TODO tidy up range
-            off_diagonal_entry[index].at_time =
-            off_diagonal_entry[index].at_time + update_addition_function
+            off_diagonal_entry[index].at_time += update_addition_function
         end
 
     end
     return system_state
 end
 
-function get_most_recent_offdiagonal_as_function(system_state)
+function get_most_recent_offdiagonal_as_function(system_state::SystemState)
     most_recent_off_diagonals =
         fill(zeros(2, 2), length(system_state.off_diagonal_timepoints))
 
