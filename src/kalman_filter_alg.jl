@@ -1,5 +1,5 @@
 mutable struct SolutionObject{T<:AbstractFloat}
-    at_time::Any # Function (1-d continuous)
+    at_time # Function (1-d continuous)
     tspan::Tuple{T,T} # Tuple{Float64, Float64}
 end
 
@@ -155,7 +155,9 @@ function initialise_state_space_mean(steady_state, τ)
     tspan = (-τ, 0.0)
     prob = ODEProblem(initial_mean!, u0, tspan)
     sol = solve(prob)
-    return [SolutionObject(sol, tspan)] # mean is an array of solution objects
+    sol_f = t-> sol(t)
+
+    return [SolutionObject(sol_f, tspan)] # mean is an array of solution objects
 end
 
 """
@@ -174,8 +176,9 @@ function initialise_state_space_variance(
     tspan = (-τ, 0.0)
     prob = ODEProblem(initial_variance!, u0, tspan)
     sol = solve(prob)
+    sol_f = t -> sol(t)
 
-    return [SolutionObject(sol, tspan)] # variance is an array of solution objects
+    return [SolutionObject(sol_f, tspan)] # variance is an array of solution objects
 end
 
 """
@@ -197,24 +200,22 @@ function initialise_off_diagonals(
         push!(off_diagonal_timepoints, round(timepoint, digits = 2))
     end
 
-    function initial_off_diagonal!(du, u, p, t)
+    function final_off_diagonal!(du, u, p, t)
         du = [0.0 0.0; 0.0 0.0]
     end
-    u0 = [0.0 0.0; 0.0 0.0]
     tspan = (-τ, 0.0)
-    prob = ODEProblem(initial_off_diagonal!, u0, tspan)
-    sol = solve(prob)
 
     @inbounds for _ = 1:number_of_offdiagonal_timepoints
-        push!(off_diagonals, [SolutionObject(sol, tspan)])
+        push!(off_diagonals, [SolutionObject(t -> [0.0 0.0; 0.0 0.0], tspan)]) # todo
     end
 
     # final off diagonal -- negative times don't matter because we don't use them
     u0 = [steady_state[1]*mRNA_scaling 0.0; 0.0 steady_state[2]*protein_scaling]
-    prob = remake(prob, u0 = u0)
+    prob = ODEProblem(final_off_diagonal!, u0, tspan)
     sol = solve(prob)
+    sol_f_final = t -> sol(t)
 
-    off_diagonals[end] = [SolutionObject(sol, tspan)]
+    off_diagonals[end] = [SolutionObject(sol_f_final, tspan)]
 
     return off_diagonals, off_diagonal_timepoints
 end
@@ -431,7 +432,7 @@ function predict_state_space_mean!(system_state, model_parameters)
         dtmax = 1.0,
     )
 
-    mean_solution_object = SolutionObject(mean_solution, tspan)
+    mean_solution_object = SolutionObject(t -> mean_solution(t), tspan)
     push!(system_state.means, mean_solution_object)
     return system_state
 end
@@ -481,7 +482,7 @@ function propagate_existing_off_diagonals!(
 
         push!(
             system_state.off_diagonals[off_diagonal_index],
-            SolutionObject(off_diag_solution, diag_tspan),
+            SolutionObject(t -> off_diag_solution(t), diag_tspan),
         )
 
     end
@@ -505,9 +506,8 @@ function propagate_new_off_diagonals!(
         initial_variance =
             get_variance_at_time(current_off_diagonal_time_point, system_state)
 
-        function off_diag_solution(t)
-            return initial_variance
-        end
+        off_diag_solution = t -> initial_variance
+
         variance_tspan = (current_off_diagonal_time_point, current_off_diagonal_time_point)
         push!(
             system_state.off_diagonals,
@@ -552,7 +552,7 @@ function propagate_new_off_diagonals!(
 
             push!(
                 system_state.off_diagonals[end],
-                SolutionObject(off_diag_solution, diag_tspan),
+                SolutionObject(t -> off_diag_solution(t), diag_tspan),
             )
         end
 
@@ -582,7 +582,7 @@ function propagate_variance!(
         dtmax = 1.0,
     )
 
-    variance_solution_object = SolutionObject(variance_solution, tspan)
+    variance_solution_object = SolutionObject(t -> variance_solution(t), tspan)
     push!(system_state.variances, variance_solution_object)
 
     return system_state
@@ -721,12 +721,20 @@ function update_mean!(
         (observation - dot(observation_transform, most_recent_mean))
     end
 
+    update_f = t -> adaptation_coefficient(t) *
+        (observation - dot(observation_transform, most_recent_mean))
+
     # TODO it's really strange that this works with floor, when I think it should be ceil
     delay_length =
         max(1, floor(Int, system_state.delay / system_state.observation_time_step))
     for index = max(1, length(system_state.means) - delay_length):length(system_state.means)
-        system_state.means[index].at_time += update_addition_function
+        # system_state.means[index].at_time += update_addition_function
+        system_state.means[index].at_time = let old_f = system_state.means[index].at_time; 
+            t -> old_f(t) + update_f(t); end
     end
+
+    # f = let f = f; t -> f(t) + b(t); end
+
 
     return system_state
 end
@@ -744,10 +752,22 @@ function update_variance!(
                most_recent_off_diagonal(t)' *
                helper_inverse
     end
+    
+    update_f = t ->
+        -most_recent_off_diagonal(t) *
+        observation_transform' *
+        observation_transform *
+        most_recent_off_diagonal(t)' *
+        helper_inverse
+    
+    # println(update_addition_function(0))
+    # println(update_f(0))
 
     for index in 1:length(system_state.variances) # TODO don't need to update everything -- fix this
     # for index in max(1, length(system_state.variances) - 1):length(system_state.variances) # TODO tidy up range
-        system_state.variances[index].at_time += update_addition_function
+        # system_state.variances[index].at_time += update_addition_function
+        system_state.variances[index].at_time = let old_f = system_state.variances[index].at_time; 
+            t -> old_f(t) + update_f(t); end
     end
 
     # TODO figure out what is going on here
@@ -776,6 +796,13 @@ function update_off_diagonals!(
                    helper_inverse
         end
 
+        update_f = t ->
+            -most_recent_off_diagonal(this_off_diagonal_timepoint) *
+            observation_transform' *
+            observation_transform *
+            most_recent_off_diagonal(t)' *
+            helper_inverse
+        
         # TODO Figure this out
         # delay_length =
         #     max(2, ceil(Int, system_state.delay / system_state.observation_time_step) + 1)
@@ -787,7 +814,9 @@ function update_off_diagonals!(
 
         for index in 1:length(off_diagonal_entry) # TODO don't need to update everything -- fix this
         # for index in max(1, length(system_state.variances) - 1):length(system_state.variances) # TODO tidy up range
-            off_diagonal_entry[index].at_time += update_addition_function
+            # off_diagonal_entry[index].at_time += update_addition_function
+            off_diagonal_entry[index].at_time = let old_f = off_diagonal_entry[index].at_time; 
+                t -> old_f(t) + update_f(t); end
         end
 
     end
