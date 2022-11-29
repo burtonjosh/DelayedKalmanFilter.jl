@@ -14,4 +14,4 @@ makedocs(;
     pages = ["Home" => "index.md"],
 )
 
-deploydocs(; repo = "github.com/burtonjosh/DelayedKalmanFilter.jl")
+deploydocs(; repo = "github.com/burtonjosh/DelayedKalmanFilter.jl", devbranch = "diffeq_new")
