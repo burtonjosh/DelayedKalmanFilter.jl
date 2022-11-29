@@ -215,7 +215,7 @@ function initialise_state_space_variance(
     protein_scaling::AbstractFloat = 100.0,
 )
 
-    state_space_variance = zeros(#Matrix{Float64}(undef,
+    state_space_variance = Matrix{Float64}(undef,
         2*states.total_number_of_states,
         2*states.total_number_of_states,
     )
