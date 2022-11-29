@@ -112,7 +112,7 @@ p_wrong = [2407.57, 3.4, log(2)/30, log(2)/90, 5.6, 21.7, 12.];
 calculate_log_likelihood_at_parameter_point(protein_observations, p_wrong, measurement_std^2)
 ```
 
-# TODO - nice looking plot
+<!-- TODO - nice looking plot
 ```@example tutorial
 plot(unobserved_data[:,3], label="Unobserved data")
 
@@ -129,4 +129,4 @@ plot!(means,ribbon=2*stds,fillalpha=.1,
            color=TolVibrantMagenta)
 
 plot!(xlabel="Time (minutes)", ylabel="Protein molecule number")
-```
+``` -->
