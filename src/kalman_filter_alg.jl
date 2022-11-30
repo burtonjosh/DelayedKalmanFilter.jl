@@ -804,10 +804,9 @@ function update_off_diagonals!(
         #         off_diagonal_entry[index].at_time + update_addition_function
         # end
 
-        # 572.33662804925
         # TODO Figure out why this is true
-        delay_length =
-            max(2, ceil(Int, system_state.delay / system_state.observation_time_step) + 1)
+        delay_length = 
+            max(2, round(Int, system_state.delay / system_state.observation_time_step) + 2)
 
         for index in max(1, length(off_diagonal_entry) - delay_length):length(off_diagonal_entry) # TODO tidy up range
             # off_diagonal_entry[index].at_time += update_addition_function

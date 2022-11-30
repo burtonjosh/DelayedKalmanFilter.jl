@@ -18,7 +18,7 @@ nothing # hide
 First we can simulate some observations. To do this, we define a stochastic delay differential equation problem using the [StochasticDelayDiffEq.jl](https://github.com/SciML/StochasticDelayDiffEq.jl) package.
 
 ```@example tutorial
-using DelayedKalmanFilter, DifferentialEquations, StochasticDelayDiffEq, Statistics
+using DelayedKalmanFilter, StochasticDelayDiffEq, Statistics
 
 hillr(X, v, K, n) = v * (K^n) / (X^n + K^n)
 
@@ -60,43 +60,62 @@ times = 0:10:730
 protein_observations = hcat(times,protein)
 
 # unobserved protein
-plot(times, unobserved_data[2,:],
+plot(
+    times,
+    unobserved_data[2,:],
     label="Unobserved",
-    xlabel="Time (mins)",
-    ylabel="Protein (molecule number)",
     linewidth=2,
     color=TolVibrantBlue)
+
 # observed protein
-scatter!(times,protein_observations[:,2],
+scatter!(
+    times,
+    protein_observations[:,2],
     label="Observed",
-    color=TolVibrantOrange)
+    color=TolVibrantOrange
+)
+
+plot!(xlabel="Time (minutes)", ylabel="Protein molecule number")
 ```
 
-Now we can call [`kalman_filter`](@ref) to get a state space mean and variance for each observation time point:
+Now we can call [`kalman_filter`](@ref) to get a `SystemState` object, which we can use to obtain the state space mean and variance for each observation time point:
 
 ```@example tutorial
-_, _, _, distributions = kalman_filter(protein_observations, p, measurement_std^2);
-means = [distributions[i].μ for i in 1:length(distributions)];
-stds = [distributions[i].σ for i in 1:length(distributions)];
+system_state, distributions = kalman_filter(protein_observations, p, measurement_std^2);
+means = [DelayedKalmanFilter.get_mean_at_time(i, system_state)[2] for i in times];
+stds = [sqrt(DelayedKalmanFilter.get_variance_at_time(i, system_state)[2,2]+measurement_std^2) for i in times];
 
-# unobserved protein
-plot(times, unobserved_data[2,:],
+plot(
+    times,
+    unobserved_data[2,:],
     label="Unobserved",
-    xlabel="Time (mins)",
-    ylabel="Protein (molecule number)",
     linewidth=2,
-    color=TolVibrantBlue)
+    color=TolVibrantBlue
+)
 
-# kalman mean and sd
-plot!(times,means,ribbon=stds,fillalpha=.1,
-    label="Kalman",
+scatter!(times, protein_observations[:,2], label="Observations")
+
+plot!(
+    times,
+    means,
+    ribbon=stds,
+    fillalpha=.1,
+    label="Kalman filter (with 1SD and 2SD)",
     linewidth=2,
-    color=TolVibrantMagenta)
+    color=TolVibrantMagenta
+)
 
-# observed protein
-scatter!(times,protein_observations[:,2],
-    label="Observed",
-    color=TolVibrantOrange)
+plot!(
+    times,
+    means,
+    ribbon=2*stds,
+    fillalpha=.1,
+    label=false,
+    linewidth=2,
+    color=TolVibrantMagenta
+)
+
+plot!(xlabel="Time (minutes)", ylabel="Protein molecule number")
 ```
 
 We can also use the convenience function [`calculate_log_likelihood_at_parameter_point`](@ref) to get a log-likelihood value for this specific (ground truth) parameter set.
@@ -105,28 +124,9 @@ We can also use the convenience function [`calculate_log_likelihood_at_parameter
 calculate_log_likelihood_at_parameter_point(protein_observations, p, measurement_std^2)
 ```
 
-Using a different parameter set should give us a smaller value for the likelihood.
+Using a different parameter set should give us a smaller value for the log-likelihood.
 
 ```@example tutorial
 p_wrong = [2407.57, 3.4, log(2)/30, log(2)/90, 5.6, 21.7, 12.];
 calculate_log_likelihood_at_parameter_point(protein_observations, p_wrong, measurement_std^2)
 ```
-
-<!-- TODO - nice looking plot
-```@example tutorial
-plot(unobserved_data[:,3], label="Unobserved data")
-
-scatter!(protein_at_observations[:,1], protein_at_observations[:,2], label="Observations")
-
-plot!(means,ribbon=stds,fillalpha=.1,
-           label="Kalman filter (with 1SD and 2SD)",
-           linewidth=2,
-           color=TolVibrantMagenta)
-
-plot!(means,ribbon=2*stds,fillalpha=.1,
-           label=false,
-           linewidth=2,
-           color=TolVibrantMagenta)
-
-plot!(xlabel="Time (minutes)", ylabel="Protein molecule number")
-``` -->
