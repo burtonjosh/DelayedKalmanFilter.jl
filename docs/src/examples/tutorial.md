@@ -5,7 +5,8 @@ The package exports two functions, [`kalman_filter`](@ref) and [`calculate_log_l
 Let's load some colours from [Paul Tol](https://personal.sron.nl/~pault/) and the [`Plots`](https://docs.juliaplots.org/stable/) package for plotting.
 
 ```@example tutorial
-using Plots
+using Plots, Random
+Random.seed!(25)
 
 begin
     black = RGBA{Float64}(colorant"#000000")
