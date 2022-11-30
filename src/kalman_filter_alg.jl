@@ -154,7 +154,7 @@ function initialise_state_space_mean(steady_state, τ)
     u0 = steady_state
     tspan = (-τ, 0.0)
     prob = ODEProblem(initial_mean!, u0, tspan)
-    sol = solve(prob)
+    sol = solve(prob, Tsit5())
     sol_f = t -> sol(t)
 
     return [SolutionObject(sol_f, tspan)] # mean is an array of solution objects
@@ -175,7 +175,7 @@ function initialise_state_space_variance(
     u0 = [steady_state[1]*mRNA_scaling 0.0; 0.0 steady_state[2]*protein_scaling]
     tspan = (-τ, 0.0)
     prob = ODEProblem(initial_variance!, u0, tspan)
-    sol = solve(prob)
+    sol = solve(prob, Tsit5())
     sol_f = t -> sol(t)
 
     return [SolutionObject(sol_f, tspan)] # variance is an array of solution objects
@@ -212,7 +212,7 @@ function initialise_off_diagonals(
     # final off diagonal -- negative times don't matter because we don't use them
     u0 = [steady_state[1]*mRNA_scaling 0.0; 0.0 steady_state[2]*protein_scaling]
     prob = ODEProblem(final_off_diagonal!, u0, tspan)
-    sol = solve(prob)
+    sol = solve(prob, Tsit5())
     sol_f_final = t -> sol(t)
 
     push!(off_diagonals, [SolutionObject(sol_f_final, tspan)])

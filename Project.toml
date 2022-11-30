@@ -5,15 +5,16 @@ version = "0.2.0"
 
 [deps]
 DataStructures = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
+DelayDiffEq = "bcd4f6db-9728-5f36-b5f7-82caef46ccdb"
 DelimitedFiles = "8bb1440f-4735-579b-a4ab-409b98df4dab"
-DifferentialEquations = "0c46a032-eb83-5123-abaf-570d42b7fbaa"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 Interpolations = "a98d9a8b-a2ab-59e6-89dd-64a1c18fca59"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+OrdinaryDiffEq = "1dea7af3-3e70-54e6-95c3-0bf5283fa5ed"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+SteadyStateDiffEq = "9672c7b4-1e72-59bd-8a11-6ac3964bc41f"
 
 [compat]
-DifferentialEquations = "7"
 Distributions = "0.23, 0.25"
 Interpolations = "0.14"
 julia = "1"
