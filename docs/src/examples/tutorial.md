@@ -83,8 +83,8 @@ Now we can call [`kalman_filter`](@ref) to get a `SystemState` object, which we 
 
 ```@example tutorial
 system_state, distributions = kalman_filter(protein_observations, p, measurement_std^2);
-means = [DelayedKalmanFilter.get_mean_at_time(i, system_state)[2] for i in times];
-stds = [sqrt(DelayedKalmanFilter.get_variance_at_time(i, system_state)[2,2]+measurement_std^2) for i in times];
+means = [get_mean_at_time(i, system_state)[2] for i in times];
+stds = [sqrt(get_variance_at_time(i, system_state)[2,2]+measurement_std^2) for i in times];
 
 plot(
     times,
