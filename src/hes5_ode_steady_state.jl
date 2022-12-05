@@ -59,5 +59,7 @@ Calculate the steady state of the Hes5 ODE system, for a specific set of paramet
 """
 function calculate_steady_state_of_ode(model_params; initial_guess = [40.0, 50000.0])
     prob = SteadyStateProblem(hes_ode!, initial_guess, model_params)
-    return solve(prob, SSRootfind())
+    # nl_prob = NonlinearProblem(prob)
+    # return solve(nl_prob, DynamicSS(Tsit5())).u
+    return solve(prob, SSRootfind()).u
 end

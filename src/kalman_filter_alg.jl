@@ -1,6 +1,13 @@
-mutable struct SolutionObject{F<:Function, T<:AbstractFloat}
+mutable struct SolutionObject{F, T<:AbstractFloat}
     at_time::F # Function (1-d continuous)
     tspan::Tuple{T,T} # Tuple{Float64, Float64}
+end
+
+"""
+Defines a method for `SolutionObject` variables, which interrogates the `at_time` function at time `t`
+"""
+function (sol::SolutionObject)(t)
+    sol.at_time(t)
 end
 
 mutable struct SystemState{T<:AbstractFloat}
@@ -26,9 +33,9 @@ function distribution_prediction(
     observation_transform::Matrix{T},
     measurement_variance::T,
 ) where {T<:AbstractFloat}
-    mean_prediction = system_state.means[end].at_time(system_state.current_time)[2]
+    mean_prediction = last(system_state.means)(system_state.current_time)[2]
     last_predicted_covariance_matrix =
-        system_state.variances[end].at_time(system_state.current_time)
+        last(system_state.variances)(system_state.current_time)
 
     variance_prediction =
         dot(
@@ -172,7 +179,7 @@ function initialise_state_space_variance(
     function initial_variance!(du, u, p, t)
         du = [0.0 0.0; 0.0 0.0]
     end
-    u0 = [steady_state[1]*mRNA_scaling 0.0; 0.0 steady_state[2]*protein_scaling]
+    u0 = [first(steady_state)*mRNA_scaling 0.0; 0.0 last(steady_state)*protein_scaling]
     tspan = (-τ, 0.0)
     prob = ODEProblem(initial_variance!, u0, tspan)
     sol = solve(prob, Tsit5())
@@ -210,7 +217,7 @@ function initialise_off_diagonals(
     end
 
     # final off diagonal -- negative times don't matter because we don't use them
-    u0 = [steady_state[1]*mRNA_scaling 0.0; 0.0 steady_state[2]*protein_scaling]
+    u0 = [first(steady_state)*mRNA_scaling 0.0; 0.0 last(steady_state)*protein_scaling]
     prob = ODEProblem(final_off_diagonal!, u0, tspan)
     sol = solve(prob, Tsit5())
     sol_f_final = t -> sol(t)
@@ -296,63 +303,64 @@ function kalman_filter_state_space_initialisation(
 end
 
 function construct_instant_jacobian(model_parameters)
-    @SMatrix [
+    [
         -model_parameters[3] 0.0
         model_parameters[6] -model_parameters[4]
     ]
 end
 
 function construct_delayed_jacobian(model_parameters, past_protein)
-    @SMatrix [
+    [
         0.0 model_parameters[5]*∂hill∂p(past_protein, model_parameters[1], model_parameters[2])
         0.0 0.0
     ]
 end
 
-"""
-This is used to get the mean at any time, for plotting purposes. Using the fast version
-will cause an extrapolation error for t < observation_time_points[end] - τ
-"""
-function slow_get_mean_at_time(t, system_state)
-    for solution_object in system_state.means
-        if first(solution_object.tspan) <= t <= last(solution_object.tspan)
-            return solution_object.at_time(t)
-        end
-    end
-end
+# """
+# This is used to get the mean at any time, for plotting purposes. Using the fast version
+# will cause an extrapolation error for t < observation_time_points[end] - τ
+# """
+# function slow_get_mean_at_time(t, system_state)
+#     for solution_object in system_state.means
+#         if first(solution_object.tspan) <= t <= last(solution_object.tspan)
+#             return solution_object(t)
+#         end
+#     end
+# end
 
 function get_mean_at_time(t, system_state)
     for solution_object in reverse(system_state.means)
-        if first(solution_object.tspan) <= t <= last(solution_object.tspan)
-            return solution_object.at_time(t)
+        if first(solution_object.tspan) <= t# <= last(solution_object.tspan)
+        # if first(solution_object.tspan) <= t <= last(solution_object.tspan)
+                return solution_object(t)
         end
     end
 end
 
-"""
-This is used to get the variance at any time, for plotting purposes. Using the fast version
-will cause an extrapolation error for t < observation_time_points[end] - τ
-"""
-function slow_get_variance_at_time(t, system_state)
-    for solution_object in system_state.variances
-        if first(solution_object.tspan) <= t <= last(solution_object.tspan)
-            return solution_object.at_time(t)
-        end
-    end
-end
+# """
+# This is used to get the variance at any time, for plotting purposes. Using the fast version
+# will cause an extrapolation error for t < observation_time_points[end] - τ
+# """
+# function slow_get_variance_at_time(t, system_state)
+#     for solution_object in system_state.variances
+#         if first(solution_object.tspan) <= t <= last(solution_object.tspan)
+#             return solution_object(t)
+#         end
+#     end
+# end
 
 function get_variance_at_time(t, system_state)
     for solution_object in reverse(system_state.variances)
-        if first(solution_object.tspan) <= t <= last(solution_object.tspan)
-            return solution_object.at_time(t)
+        if first(solution_object.tspan) <= t# <= last(solution_object.tspan)
+            return solution_object(t)
         end
     end
 end
 
 function get_specific_off_diagonal_value_at_time(t, off_diagonal_entry)
     for solution_object in reverse(off_diagonal_entry)
-        if first(solution_object.tspan) <= t <= last(solution_object.tspan)
-            return solution_object.at_time(t)
+        if first(solution_object.tspan) <= t# <= last(solution_object.tspan)
+            return solution_object(t)
         end
     end
 end
@@ -527,9 +535,9 @@ function propagate_new_off_diagonals!(
 
         past_function(t) = interpolation_object(t)
         history_tspan =
-            (system_state.off_diagonal_timepoints[1], current_off_diagonal_time_point)
+            (first(system_state.off_diagonal_timepoints), current_off_diagonal_time_point)
         pushfirst!(
-            system_state.off_diagonals[end],
+            last(system_state.off_diagonals),
             SolutionObject(past_function, history_tspan),
         )
 
@@ -555,7 +563,7 @@ function propagate_new_off_diagonals!(
             )
 
             push!(
-                system_state.off_diagonals[end],
+                last(system_state.off_diagonals),
                 SolutionObject(t -> off_diag_solution(t), diag_tspan),
             )
         end
@@ -615,9 +623,9 @@ function predict_variance_and_off_diagonals!(system_state, model_parameters)
 
         delayed_jacobian = construct_delayed_jacobian(model_parameters, past_protein)
 
-        variance_of_noise = @SMatrix [
-            params[3]*current_mean[1]+params[5]*hill_function(past_protein, params[1], params[2]) 0.0
-            0.0 params[6]*current_mean[1]+params[4]*current_mean[2]
+        variance_of_noise = [
+            params[3]*first(current_mean)+params[5]*hill_function(past_protein, params[1], params[2]) 0.0
+            0.0 params[6]*first(current_mean)+params[4]*last(current_mean)
         ]
 
         dvariance .=
@@ -636,7 +644,7 @@ function predict_variance_and_off_diagonals!(system_state, model_parameters)
         delayed_jacobian = construct_delayed_jacobian(model_parameters, past_protein)
 
         if s < 0 || past_time < 0
-            covariance_matrix_intermediate_to_past = @SMatrix zeros(2, 2)
+            covariance_matrix_intermediate_to_past = zeros(2, 2)
         else
             covariance_matrix_intermediate_to_past = history(s, past_time)
         end
@@ -647,7 +655,7 @@ function predict_variance_and_off_diagonals!(system_state, model_parameters)
     end
 
     current_time = system_state.current_time
-    last_off_diagonal_timepoint = system_state.off_diagonal_timepoints[end]
+    last_off_diagonal_timepoint = last(system_state.off_diagonal_timepoints)
     next_observation_time = system_state.current_time + system_state.observation_time_step
     next_end_time =
         min(next_observation_time, last_off_diagonal_timepoint + system_state.delay)
@@ -807,7 +815,7 @@ function get_most_recent_offdiagonal_as_function(system_state::SystemState)
 
     for (off_diagonal_index, off_diagonal_entry) in enumerate(system_state.off_diagonals)
         most_recent_off_diagonals[off_diagonal_index] =
-            off_diagonal_entry[end].at_time(system_state.current_time)
+            last(off_diagonal_entry)(system_state.current_time)
     end
 
     return linear_interpolation(
@@ -823,7 +831,7 @@ function generate_off_diagonal_history_function(off_diagonal_time, system_state)
 
     for (off_diagonal_index, off_diagonal_entry) in enumerate(system_state.off_diagonals)
         required_off_diagonals[off_diagonal_index] =
-            off_diagonal_entry[end].at_time(off_diagonal_time) # transpose
+            last(off_diagonal_entry)(off_diagonal_time) # transpose
     end
 
     return linear_interpolation(
@@ -865,7 +873,7 @@ respectively.
 """
 function kalman_update_step!(system_state, measurement_variance, observation_transform)
     # This is P(t+Δt,t+Δt) in the paper
-    most_recent_variance = system_state.variances[end].at_time(system_state.current_time)
+    most_recent_variance = last(system_state.variances)(system_state.current_time)
 
     # This is (FP_{t+Δt}F^T + Σ_ϵ)^{-1}
     helper_inverse = calculate_helper_inverse(
