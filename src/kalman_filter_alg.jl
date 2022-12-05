@@ -710,13 +710,19 @@ function kalman_prediction_step!(system_state, model_parameters, observation_ind
     return system_state
 end # function
 
+"""
+Return a new function whose return value is the sum of the return values of the function `old` and the function `update`
+"""
+function updatefunc(old, update)
+    return x -> update(x) + old(x)
+end
+
 function update_mean!(
     system_state,
     most_recent_off_diagonal,
     observation_transform,
     helper_inverse,
 )
-    # println(system_state.off_diagonal_timepoints)
     most_recent_mean = get_mean_at_time(system_state.current_time, system_state)
     adaptation_coefficient(t) =
         most_recent_off_diagonal(t) * observation_transform' * helper_inverse
@@ -732,14 +738,7 @@ function update_mean!(
     delay_length =
         max(1, floor(Int, system_state.delay / system_state.observation_time_step))
     for index = max(1, length(system_state.means) - delay_length):length(system_state.means)
-        # system_state.means[index].at_time += update_addition_function
-        # system_state.means[index].at_time = let old_f = system_state.means[index].at_time
-        #     t -> old_f(t) + update_f(t)
-        
-        updated_function = let old_f = system_state.means[index].at_time
-            t -> old_f(t) + update_f(t)
-        end
-
+        updated_function = updatefunc(system_state.means[index].at_time, update_f)
         system_state.means[index] = SolutionObject(updated_function, system_state.means[index].tspan)
     end
 
@@ -761,16 +760,7 @@ function update_variance!(
             helper_inverse
 
     for index in max(1, length(system_state.variances) - 1):length(system_state.variances)
-        # system_state.variances[index].at_time += update_addition_function
-        
-        # system_state.variances[index].at_time =
-        #     let old_f = system_state.variances[index].at_time
-        #         t -> old_f(t) + update_f(t)
-        #     end
-
-        updated_function = let old_f = system_state.variances[index].at_time
-            t -> old_f(t) + update_f(t)
-        end
+        updated_function = updatefunc(system_state.variances[index].at_time, update_f)        
         system_state.variances[index] = SolutionObject(updated_function, system_state.variances[index].tspan)
     end
 
@@ -798,28 +788,12 @@ function update_off_diagonals!(
                 helper_inverse
 
         
-        # for index =
-        #     max(1, length(off_diagonal_entry) - delay_length):length(off_diagonal_entry)
-        #     off_diagonal_entry[index].at_time =
-        #         off_diagonal_entry[index].at_time + update_addition_function
-        # end
-
         # TODO Figure out why this is true
         delay_length = 
             max(2, round(Int, system_state.delay / system_state.observation_time_step) + 2)
 
         for index in max(1, length(off_diagonal_entry) - delay_length):length(off_diagonal_entry) # TODO tidy up range
-            # off_diagonal_entry[index].at_time += update_addition_function
-            
-            # off_diagonal_entry[index].at_time =
-            #     let old_f = off_diagonal_entry[index].at_time
-            #         t -> old_f(t) + update_f(t)
-            #     end
-
-            updated_function =
-                let old_f = off_diagonal_entry[index].at_time
-                    t -> old_f(t) + update_f(t)
-                end
+            updated_function = updatefunc(off_diagonal_entry[index].at_time, update_f)
             off_diagonal_entry[index] = SolutionObject(updated_function, off_diagonal_entry[index].tspan)
         end
 
