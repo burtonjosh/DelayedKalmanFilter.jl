@@ -1,6 +1,6 @@
-mutable struct SolutionObject{F, T<:AbstractFloat}
+mutable struct SolutionObject{F, T1, T2}#<:AbstractFloat}
     at_time::F # Function (1-d continuous)
-    tspan::Tuple{T,T} # Tuple{Float64, Float64}
+    tspan::Tuple{T1,T2} # Tuple{Float64, Float64}
 end
 
 """
@@ -10,18 +10,18 @@ function (sol::SolutionObject)(t)
     sol.at_time(t)
 end
 
-mutable struct SystemState{T<:AbstractFloat}
+mutable struct SystemState#{T}#<:AbstractFloat}
     means::AbstractVector{DelayedKalmanFilter.SolutionObject}
     variances::AbstractVector{DelayedKalmanFilter.SolutionObject}
     off_diagonals::CircularBuffer{AbstractVector{DelayedKalmanFilter.SolutionObject}}
-    off_diagonal_timepoints::CircularBuffer{T}
-    delay::T
-    off_diagonal_timestep::T
-    observations::AbstractVector{T}
-    observation_time_points::AbstractVector{T}
-    observation_time_step::T
-    current_time::T
-    current_observation::T
+    off_diagonal_timepoints#::CircularBuffer{T}
+    delay#::T
+    off_diagonal_timestep#::T
+    observations#::AbstractVector{T}
+    observation_time_points#::AbstractVector{T}
+    observation_time_step#::T
+    current_time#::T
+    current_observation#::T
 end
 
 """
@@ -113,7 +113,7 @@ julia> distributions[1,:]
 """
 function kalman_filter(
     protein_at_observations::Matrix{T},
-    model_parameters::Vector{T},
+    model_parameters,#::Vector{T},
     measurement_variance::T;
     off_diagonal_timestep::T = 1.0,
 ) where {T} # <: AbstractFloat # TODO check if this works with autodiff
@@ -177,7 +177,7 @@ function initialise_state_space_variance(
     protein_scaling = 100.0,
 )
     function initial_variance!(du, u, p, t)
-        du = [0.0 0.0; 0.0 0.0]
+        du = zeros(typeof(τ), 2, 2)#[0.0 0.0; 0.0 0.0]
     end
     u0 = [first(steady_state)*mRNA_scaling 0.0; 0.0 last(steady_state)*protein_scaling]
     tspan = (-τ, 0.0)
@@ -200,20 +200,19 @@ function initialise_off_diagonals(
 )
     number_of_offdiagonal_timepoints = ceil(Int, τ / off_diagonal_timestep) + 1
     off_diagonals = CircularBuffer{AbstractVector{SolutionObject}}(number_of_offdiagonal_timepoints)
-    off_diagonal_timepoints = CircularBuffer{Float64}(number_of_offdiagonal_timepoints)
+    off_diagonal_timepoints = CircularBuffer{eltype(τ)}(number_of_offdiagonal_timepoints)
 
     for timepoint in LinRange(-τ, 0, number_of_offdiagonal_timepoints)
-        # TODO round might not be a good solution
-        push!(off_diagonal_timepoints, round(timepoint, digits = 2))
+        push!(off_diagonal_timepoints, timepoint)# used to be -> round(timepoint, digits = 2))
     end
 
     function final_off_diagonal!(du, u, p, t)
-        du = [0.0 0.0; 0.0 0.0]
+        du = zeros(typeof(τ), 2, 2)#[0.0 0.0; 0.0 0.0]
     end
     tspan = (-τ, 0.0)
 
     @inbounds for _ = 1:number_of_offdiagonal_timepoints-1
-        push!(off_diagonals, [SolutionObject(t -> [0.0 0.0; 0.0 0.0], tspan)])
+        push!(off_diagonals, [SolutionObject(t -> zeros(typeof(τ), 2, 2), tspan)])
     end
 
     # final off diagonal -- negative times don't matter because we don't use them
@@ -257,7 +256,7 @@ served data to molecule number, for mRNA and protein
 """
 function kalman_filter_state_space_initialisation(
     protein_at_observations::Matrix{T},
-    model_parameters::Vector{T},
+    model_parameters,#::Vector{T},
     observation_transform::Matrix{T},
     measurement_variance::T,
     off_diagonal_timestep::T,
@@ -275,7 +274,7 @@ function kalman_filter_state_space_initialisation(
     current_time = protein_at_observations[1, 1]
     current_observation = protein_at_observations[1, 2]
 
-    system_state = SystemState{typeof(observation_time_step)}(
+    system_state = SystemState(#{typeof(observation_time_step)}(
         means,
         variances,
         off_diagonals,
@@ -378,7 +377,8 @@ function get_off_diagonal_at_time_combination(time_1, time_2, system_state)
 
     min_time = min(time_1, time_2)
     max_time = max(time_1, time_2)
-    past_values = fill(zeros(2, 2), length(system_state.off_diagonal_timepoints))
+    # println(typeof(system_state.delay))
+    past_values = fill(zeros(typeof(system_state.delay), 2, 2), length(system_state.off_diagonal_timepoints))
 
     # you get the same result without doing the transpose -- this could potentially be used to save some time
     # for (off_diagonal_index, off_diagonal_entry) in enumerate(system_state.off_diagonals)
@@ -811,7 +811,7 @@ end
 
 function get_most_recent_offdiagonal_as_function(system_state::SystemState)
     most_recent_off_diagonals =
-        fill(zeros(2, 2), length(system_state.off_diagonal_timepoints))
+        fill(zeros(typeof(system_state.delay), 2, 2), length(system_state.off_diagonal_timepoints))
 
     for (off_diagonal_index, off_diagonal_entry) in enumerate(system_state.off_diagonals)
         most_recent_off_diagonals[off_diagonal_index] =
@@ -827,7 +827,7 @@ end
 
 function generate_off_diagonal_history_function(off_diagonal_time, system_state)
 
-    required_off_diagonals = fill(zeros(2, 2), length(system_state.off_diagonal_timepoints))
+    required_off_diagonals = fill(zeros(typeof(system_state.delay), 2, 2), length(system_state.off_diagonal_timepoints))
 
     for (off_diagonal_index, off_diagonal_entry) in enumerate(system_state.off_diagonals)
         required_off_diagonals[off_diagonal_index] =
