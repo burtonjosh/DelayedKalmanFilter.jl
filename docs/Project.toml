@@ -1,4 +1,6 @@
 [deps]
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+Optim = "429524aa-4258-5aef-a3af-852621145aeb"
 Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
 StochasticDelayDiffEq = "29a0d76e-afc8-11e9-03a4-eda52ae4b960"
+Turing = "fce5fe82-541a-59a6-adf8-730c64b5f9a0"
