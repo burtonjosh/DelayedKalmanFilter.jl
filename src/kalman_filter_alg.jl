@@ -95,7 +95,7 @@ julia> using DelayedKalmanFilter
 
 julia> protein = [0. 105.; 10. 100.; 20. 98.]; # times are 0., 10., 20., and protein levels are 105., 100., and 98. respectively
 
-julia> model_parameters = [100.0, 5.0, 0.1, 0.1, 1.0, 1.0, 15.0];
+julia> model_parameters = [300.0, 4.0, 0.1, 0.1, 1.0, 1.0, 15.0];
 
 julia> measurement_variance = 1000.0;
 
@@ -107,8 +107,8 @@ julia> system_state, distributions = kalman_filter(
 
 julia> distributions[1,:]
 2-element Vector{Float64}:
-   77.80895986786031
- 8780.895986786032
+    98.83535976369208
+ 10883.535976369209
 ```
 """
 function kalman_filter(
@@ -377,7 +377,6 @@ function get_off_diagonal_at_time_combination(time_1, time_2, system_state)
 
     min_time = min(time_1, time_2)
     max_time = max(time_1, time_2)
-    # println(typeof(system_state.delay))
     past_values = fill(zeros(typeof(system_state.delay), 2, 2), length(system_state.off_diagonal_timepoints))
 
     # you get the same result without doing the transpose -- this could potentially be used to save some time
@@ -420,6 +419,12 @@ function predict_state_space_mean!(system_state, model_parameters)
         system_state.current_time,
         system_state.current_time + system_state.observation_time_step,
     )
+
+    if typeof(system_state.delay) <: AbstractFloat
+        lags = system_state.delay
+    else
+        lags = system_state.delay.value
+    end
     # if @isdefined mean_prob
     mean_prob = DDEProblem(
         state_space_mean_RHS,
@@ -427,12 +432,12 @@ function predict_state_space_mean!(system_state, model_parameters)
         protein_history,
         tspan,
         model_parameters;
-        constant_lags = [system_state.delay],
+        constant_lags = [lags],#[system_state.delay],
     )
 
     mean_solution = solve(
         mean_prob,
-        MethodOfSteps(Euler()),
+        MethodOfSteps(Euler()),#MethodOfSteps(Tsit5()),
         dt = 1.0,
         adaptive = false,
         saveat = 1.0,
@@ -471,6 +476,11 @@ function propagate_existing_off_diagonals!(
         )
 
         # history(s, t) = zeros(2,2)
+        if typeof(system_state.delay) <: AbstractFloat
+            lags = system_state.delay
+        else
+            lags = system_state.delay.value
+        end
 
         # if @isdefined off_diag_prob
         off_diag_prob = DDEProblem(
@@ -479,12 +489,12 @@ function propagate_existing_off_diagonals!(
             history,
             diag_tspan,
             intermediate_time;
-            constant_lags = [system_state.delay],
+            constant_lags = [lags],#[system_state.delay],
         )
 
         off_diag_solution = solve(
             off_diag_prob,
-            MethodOfSteps(Euler()),
+            MethodOfSteps(Euler()),#MethodOfSteps(Tsit5()),
             dt = 1.0,
             adaptive = false,
             saveat = 1.0,
@@ -540,6 +550,12 @@ function propagate_new_off_diagonals!(
             last(system_state.off_diagonals),
             SolutionObject(past_function, history_tspan),
         )
+        
+        if typeof(system_state.delay) <: AbstractFloat
+            lags = system_state.delay
+        else
+            lags = system_state.delay.value
+        end
 
         if current_off_diagonal_time_point != next_end_time
 
@@ -549,12 +565,12 @@ function propagate_new_off_diagonals!(
                 history,
                 diag_tspan,
                 current_off_diagonal_time_point;
-                constant_lags = [system_state.delay],
+                constant_lags = [lags],#[system_state.delay],
             )
 
             off_diag_solution = solve(
                 off_diag_prob,
-                MethodOfSteps(Euler()),
+                MethodOfSteps(Euler()),#MethodOfSteps(Tsit5())
                 dt = 1.0,
                 adaptive = false,
                 saveat = 1.0,
