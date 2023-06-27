@@ -4,6 +4,7 @@ using DataStructures
 using DelimitedFiles
 using DelayDiffEq, OrdinaryDiffEq, SteadyStateDiffEq
 using Distributions
+using ForwardDiff
 using Interpolations
 using LinearAlgebra
 using NonlinearSolve
