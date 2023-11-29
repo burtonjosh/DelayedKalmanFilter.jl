@@ -1,6 +1,6 @@
-mutable struct SolutionObject{F,T1,T2}#<:AbstractFloat}
+mutable struct SolutionObject{F, T1, T2}#<:AbstractFloat}
   at_time::F # Function (1-d continuous)
-  tspan::Tuple{T1,T2} # Tuple{Float64, Float64}
+  tspan::Tuple{T1, T2} # Tuple{Float64, Float64}
 end
 
 """
@@ -32,7 +32,7 @@ function distribution_prediction(
   system_state::SystemState,
   observation_transform::Matrix{T},
   measurement_variance::T,
-) where {T<:AbstractFloat}
+) where {T <: AbstractFloat}
   mean_prediction = last(system_state.means)(system_state.current_time)[2]
   last_predicted_covariance_matrix =
     last(system_state.variances)(system_state.current_time)
@@ -52,7 +52,7 @@ Update the current time and observation of the system state
 function update_current_time_and_observation!(
   system_state::SystemState,
   observation_index::T,
-) where {T<:Integer}
+) where {T <: Integer}
   system_state.current_time += system_state.observation_time_step
   system_state.current_observation = system_state.observations[observation_index]
   return system_state
@@ -115,12 +115,12 @@ function kalman_filter(
   protein_at_observations::Matrix{T},
   model_parameters,#::Vector{T},
   measurement_variance::T;
-  adaptive=false,
-  off_diagonal_steps::Integer=10,
-  alg=Euler(),
-  euler_dt=1.0,
-  relative_tolerance=1e-6,
-  absolute_tolerance=1e-6,
+  adaptive = false,
+  off_diagonal_steps::Integer = 10,
+  alg = Euler(),
+  euler_dt = 1.0,
+  relative_tolerance = 1e-6,
+  absolute_tolerance = 1e-6,
 ) where {T} # <: AbstractFloat # TODO check if this works with autodiff
   # F in the paper
   observation_transform = [0.0 1.0]
@@ -136,18 +136,17 @@ function kalman_filter(
     )
 
   # loop through observations and at each observation apply the Kalman prediction step and then the update step
-  @inbounds for observation_index = 2:size(protein_at_observations, 1)
-
+  for observation_index in 2:size(protein_at_observations, 1)
     system_state =
       kalman_prediction_step!(
         system_state,
         model_parameters,
         observation_index;
-        adaptive=adaptive,
-        alg=alg,
-        euler_dt=euler_dt,
-        relative_tolerance=relative_tolerance,
-        absolute_tolerance=absolute_tolerance,
+        adaptive,
+        alg,
+        euler_dt,
+        relative_tolerance,
+        absolute_tolerance,
       )
 
     # between the prediction and update steps we record the predicted mean and variance our likelihood
@@ -160,7 +159,6 @@ function kalman_filter(
 
     system_state =
       kalman_update_step!(system_state, measurement_variance, observation_transform)
-
   end
   return system_state, predicted_observation_distributions
 end
@@ -188,8 +186,8 @@ Initialse the state space variance for a given set of time states and the ODE sy
 function initialise_state_space_variance(
   steady_state,
   τ;
-  mRNA_scaling=20.0,
-  protein_scaling=100.0,
+  mRNA_scaling = 20.0,
+  protein_scaling = 100.0,
 )
   function initial_variance!(du, u, p, t)
     du = zeros(typeof(τ), 2, 2)#[0.0 0.0; 0.0 0.0]
@@ -210,8 +208,8 @@ function initialise_off_diagonals(
   steady_state,
   τ,
   off_diagonal_steps;
-  mRNA_scaling=20.0,
-  protein_scaling=100.0,
+  mRNA_scaling = 20.0,
+  protein_scaling = 100.0,
 )
   off_diagonal_timestep = τ / off_diagonal_steps
   number_of_offdiagonal_timepoints = off_diagonal_steps + 1
@@ -220,11 +218,11 @@ function initialise_off_diagonals(
 
   if typeof(τ) <: AbstractFloat
     for timepoint in LinRange(-τ, 0, number_of_offdiagonal_timepoints)
-      push!(off_diagonal_timepoints, round(timepoint, digits=5))# used to be -> round(timepoint, digits = 2))
+      push!(off_diagonal_timepoints, round(timepoint, digits = 5))# used to be -> round(timepoint, digits = 2))
     end
   else
     for timepoint in LinRange(-τ, 0, number_of_offdiagonal_timepoints)
-      push!(off_diagonal_timepoints, round(timepoint.value, digits=5))# used to be -> round(timepoint, digits = 2))
+      push!(off_diagonal_timepoints, round(timepoint.value, digits = 5))# used to be -> round(timepoint, digits = 2))
     end
   end
 
@@ -233,7 +231,7 @@ function initialise_off_diagonals(
   end
   tspan = (-τ, 0.0)
 
-  @inbounds for _ = 1:number_of_offdiagonal_timepoints-1
+  @inbounds for _ in 1:(number_of_offdiagonal_timepoints - 1)
     push!(off_diagonals, [SolutionObject(t -> zeros(typeof(τ), 2, 2), tspan)])
   end
 
@@ -417,7 +415,7 @@ function get_off_diagonal_at_time_combination(time_1, time_2, system_state)
   end
 
   interpolated_values =
-    linear_interpolation(system_state.off_diagonal_timepoints, past_values, extrapolation_bc=Line()) # extrapolate for any small bound errors
+    linear_interpolation(system_state.off_diagonal_timepoints, past_values, extrapolation_bc = Line()) # extrapolate for any small bound errors
 
   return interpolated_values(min_time)
 
@@ -433,7 +431,7 @@ function predict_state_space_mean!(
   alg,
   euler_dt,
   relative_tolerance,
-  absolute_tolerance
+  absolute_tolerance,
 )
 
   function state_space_mean_RHS(du, u, h, p, t)
@@ -463,25 +461,25 @@ function predict_state_space_mean!(
     protein_history,
     tspan,
     model_parameters;
-    constant_lags=[lags],
+    constant_lags = [lags],
   )
 
   if adaptive
     mean_solution = solve(
       mean_prob,
       MethodOfSteps(alg),
-      reltol=relative_tolerance,
-      abstol=absolute_tolerance,
+      reltol = relative_tolerance,
+      abstol = absolute_tolerance,
     )
   else
     mean_solution = solve(
       mean_prob,
       MethodOfSteps(alg),
-      dt=euler_dt,
-      adaptive=false,
-      saveat=euler_dt,
-      dtmin=euler_dt,
-      dtmax=euler_dt,
+      dt = euler_dt,
+      adaptive = false,
+      saveat = euler_dt,
+      dtmin = euler_dt,
+      dtmax = euler_dt,
     )
   end
 
@@ -536,25 +534,25 @@ function propagate_existing_off_diagonals!(
       history,
       diag_tspan,
       intermediate_time;
-      constant_lags=[lags],#[system_state.delay],
+      constant_lags = [lags],#[system_state.delay],
     )
 
     if adaptive
       off_diag_solution = solve(
         off_diag_prob,
         MethodOfSteps(alg),
-        reltol=relative_tolerance,
-        abstol=absolute_tolerance,
+        reltol = relative_tolerance,
+        abstol = absolute_tolerance,
       )
     else
       off_diag_solution = solve(
         off_diag_prob,
         MethodOfSteps(alg),
-        dt=euler_dt,
-        adaptive=false,
-        saveat=euler_dt,
-        dtmin=euler_dt,
-        dtmax=euler_dt,
+        dt = euler_dt,
+        adaptive = false,
+        saveat = euler_dt,
+        dtmin = euler_dt,
+        dtmax = euler_dt,
       )
     end
 
@@ -626,25 +624,25 @@ function propagate_new_off_diagonals!(
         history,
         diag_tspan,
         current_off_diagonal_time_point;
-        constant_lags=[lags],#[system_state.delay],
+        constant_lags = [lags],#[system_state.delay],
       )
 
       if adaptive
         off_diag_solution = solve(
           off_diag_prob,
           MethodOfSteps(alg),
-          reltol=relative_tolerance,
-          abstol=absolute_tolerance,
+          reltol = relative_tolerance,
+          abstol = absolute_tolerance,
         )
       else
         off_diag_solution = solve(
           off_diag_prob,
           MethodOfSteps(alg),
-          dt=euler_dt,
-          adaptive=false,
-          saveat=euler_dt,
-          dtmin=euler_dt,
-          dtmax=euler_dt,
+          dt = euler_dt,
+          adaptive = false,
+          saveat = euler_dt,
+          dtmin = euler_dt,
+          dtmax = euler_dt,
         )
       end
 
@@ -679,18 +677,18 @@ function propagate_variance!(
     variance_solution = solve(
       variance_prob,
       alg,
-      reltol=relative_tolerance,
-      abstol=absolute_tolerance,
+      reltol = relative_tolerance,
+      abstol = absolute_tolerance,
     )
   else
     variance_solution = solve(
       variance_prob,
       alg,
-      dt=euler_dt,
-      adaptive=false,
-      saveat=euler_dt,
-      dtmin=euler_dt,
-      dtmax=euler_dt,
+      dt = euler_dt,
+      adaptive = false,
+      saveat = euler_dt,
+      dtmin = euler_dt,
+      dtmax = euler_dt,
     )
   end
 
@@ -732,8 +730,8 @@ function predict_variance_and_off_diagonals!(
     delayed_jacobian = construct_delayed_jacobian(model_parameters, past_protein)
 
     variance_of_noise = [
-      params[3]*first(current_mean)+params[5]*hill_function(past_protein, params[1], params[2]) 0.0
-      0.0 params[6]*first(current_mean)+params[4]*last(current_mean)
+      params[3] * first(current_mean)+params[5] * hill_function(past_protein, params[1], params[2]) 0.0
+      0.0 params[6] * first(current_mean)+params[4] * last(current_mean)
     ]
 
     dvariance .=
@@ -788,11 +786,11 @@ function predict_variance_and_off_diagonals!(
       off_diagonal_RHS,
       current_time,
       next_end_time;
-      adaptive=adaptive,
-      alg=alg,
-      euler_dt=euler_dt,
-      relative_tolerance=relative_tolerance,
-      absolute_tolerance=absolute_tolerance,
+      adaptive = adaptive,
+      alg = alg,
+      euler_dt = euler_dt,
+      relative_tolerance = relative_tolerance,
+      absolute_tolerance = absolute_tolerance,
     )
     system_state = propagate_variance!(
       system_state,
@@ -800,30 +798,30 @@ function predict_variance_and_off_diagonals!(
       current_time,
       next_end_time,
       model_parameters;
-      adaptive=adaptive,
-      alg=alg,
-      euler_dt=euler_dt,
-      relative_tolerance=relative_tolerance,
-      absolute_tolerance=absolute_tolerance,
+      adaptive = adaptive,
+      alg = alg,
+      euler_dt = euler_dt,
+      relative_tolerance = relative_tolerance,
+      absolute_tolerance = absolute_tolerance,
     )
     system_state = propagate_new_off_diagonals!(
       system_state,
       off_diagonal_RHS,
       current_time,
       next_end_time;
-      adaptive=adaptive,
-      alg=alg,
-      euler_dt=euler_dt,
-      relative_tolerance=relative_tolerance,
-      absolute_tolerance=absolute_tolerance,
+      adaptive = adaptive,
+      alg = alg,
+      euler_dt = euler_dt,
+      relative_tolerance = relative_tolerance,
+      absolute_tolerance = absolute_tolerance,
     )
 
     current_time = next_end_time
 
     if typeof(system_state.delay) <: AbstractFloat
-      next_end_time = round(min(next_observation_time, current_time + system_state.delay), digits=5)
+      next_end_time = round(min(next_observation_time, current_time + system_state.delay), digits = 5)
     else
-      next_end_time = round(min(next_observation_time, current_time + system_state.delay.value), digits=5)
+      next_end_time = round(min(next_observation_time, current_time + system_state.delay.value), digits = 5)
     end
   end
 
@@ -861,20 +859,20 @@ function kalman_prediction_step!(
   system_state = predict_state_space_mean!(
     system_state,
     model_parameters;
-    adaptive=adaptive,
-    alg=alg,
-    euler_dt=euler_dt,
-    relative_tolerance=relative_tolerance,
-    absolute_tolerance=absolute_tolerance,
+    adaptive = adaptive,
+    alg = alg,
+    euler_dt = euler_dt,
+    relative_tolerance = relative_tolerance,
+    absolute_tolerance = absolute_tolerance,
   )
   system_state = predict_variance_and_off_diagonals!(
     system_state,
     model_parameters;
-    adaptive=adaptive,
-    alg=alg,
-    euler_dt=euler_dt,
-    relative_tolerance=relative_tolerance,
-    absolute_tolerance=absolute_tolerance,
+    adaptive = adaptive,
+    alg = alg,
+    euler_dt = euler_dt,
+    relative_tolerance = relative_tolerance,
+    absolute_tolerance = absolute_tolerance,
   )
 
   # move system_state to the next observation for the update step
@@ -910,7 +908,7 @@ function update_mean!(
   # TODO it's really strange that this works with floor, when I think it should be ceil
   delay_length =
     max(1, floor(Int, system_state.delay / system_state.observation_time_step))
-  for index = max(1, length(system_state.means) - delay_length):length(system_state.means)
+  for index in max(1, length(system_state.means) - delay_length):length(system_state.means)
     updated_function = updatefunc(system_state.means[index].at_time, update_f)
     system_state.means[index] = SolutionObject(updated_function, system_state.means[index].tspan)
   end
@@ -986,7 +984,7 @@ function get_most_recent_offdiagonal_as_function(system_state::SystemState)
   return linear_interpolation(
     copy(system_state.off_diagonal_timepoints),
     most_recent_off_diagonals,
-    extrapolation_bc=Line(), # extrapolate for any small bound errors
+    extrapolation_bc = Line(), # extrapolate for any small bound errors
   )
 end
 
@@ -1002,7 +1000,7 @@ function generate_off_diagonal_history_function(off_diagonal_time, system_state)
   return linear_interpolation(
     copy(system_state.off_diagonal_timepoints),
     required_off_diagonals,
-    extrapolation_bc=Line()
+    extrapolation_bc = Line(),
   )
 end
 

@@ -24,29 +24,28 @@ function calculate_log_likelihood_at_parameter_point(
   protein_at_observations::Matrix{T},
   model_parameters,#::Vector{<:AbstractFloat},
   measurement_variance::T;
-  adaptive=false,
-  off_diagonal_steps::Integer=10,
-  alg=Euler(),
-  euler_dt=1.0,
-  relative_tolerance=1e-6,
-  absolute_tolerance=1e-6,
-) where {T<:AbstractFloat}
+  adaptive = false,
+  off_diagonal_steps::Integer = 10,
+  alg = Euler(),
+  euler_dt = 1.0,
+  relative_tolerance = 1e-6,
+  absolute_tolerance = 1e-6,
+) where {T <: AbstractFloat}
   size(protein_at_observations, 2) == 2 ||
     throw(ArgumentError("observation matrix must be N × 2"))
 
   @assert all(model_parameters .>= 0.0) "all model parameters must be positive"
-
   _, distributions =
     kalman_filter(
       protein_at_observations,
       model_parameters,
       measurement_variance;
-      adaptive=adaptive,
-      off_diagonal_steps=off_diagonal_steps,
-      alg=alg,
-      euler_dt=euler_dt,
-      relative_tolerance=relative_tolerance,
-      absolute_tolerance=absolute_tolerance,
+      adaptive,
+      off_diagonal_steps,
+      alg,
+      euler_dt,
+      relative_tolerance,
+      absolute_tolerance,
     )
   observations = protein_at_observations[:, 2]
 
