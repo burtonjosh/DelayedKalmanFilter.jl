@@ -34,14 +34,10 @@ function distribution_prediction(
   measurement_variance::T,
 ) where {T <: AbstractFloat}
   mean_prediction = last(system_state.means)(system_state.current_time)[2]
-  last_predicted_covariance_matrix =
-    last(system_state.variances)(system_state.current_time)
+  last_predicted_covariance_matrix = last(system_state.variances)(system_state.current_time)
 
   variance_prediction =
-    dot(
-      observation_transform,
-      last_predicted_covariance_matrix * observation_transform',
-    ) + measurement_variance
+    dot(observation_transform, last_predicted_covariance_matrix * observation_transform') + measurement_variance
 
   return mean_prediction, variance_prediction
 end
@@ -49,10 +45,7 @@ end
 """
 Update the current time and observation of the system state
 """
-function update_current_time_and_observation!(
-  system_state::SystemState,
-  observation_index::T,
-) where {T <: Integer}
+function update_current_time_and_observation!(system_state::SystemState, observation_index::T) where {T <: Integer}
   system_state.current_time += system_state.observation_time_step
   system_state.current_observation = system_state.observations[observation_index]
   return system_state
@@ -126,39 +119,32 @@ function kalman_filter(
   observation_transform = [0.0 1.0]
 
   # initialise state space and distribution predictions
-  system_state, predicted_observation_distributions =
-    kalman_filter_state_space_initialisation(
-      protein_at_observations,
-      model_parameters,
-      observation_transform,
-      measurement_variance,
-      off_diagonal_steps,
-    )
+  system_state, predicted_observation_distributions = kalman_filter_state_space_initialisation(
+    protein_at_observations,
+    model_parameters,
+    observation_transform,
+    measurement_variance,
+    off_diagonal_steps,
+  )
 
   # loop through observations and at each observation apply the Kalman prediction step and then the update step
   for observation_index in 2:size(protein_at_observations, 1)
-    system_state =
-      kalman_prediction_step!(
-        system_state,
-        model_parameters,
-        observation_index;
-        adaptive,
-        alg,
-        euler_dt,
-        relative_tolerance,
-        absolute_tolerance,
-      )
+    system_state = kalman_prediction_step!(
+      system_state,
+      model_parameters,
+      observation_index;
+      adaptive,
+      alg,
+      euler_dt,
+      relative_tolerance,
+      absolute_tolerance,
+    )
 
     # between the prediction and update steps we record the predicted mean and variance our likelihood
     predicted_observation_distributions[observation_index, :] .=
-      distribution_prediction(
-        system_state,
-        observation_transform,
-        measurement_variance,
-      )
+      distribution_prediction(system_state, observation_transform, measurement_variance)
 
-    system_state =
-      kalman_update_step!(system_state, measurement_variance, observation_transform)
+    system_state = kalman_update_step!(system_state, measurement_variance, observation_transform)
   end
   return system_state, predicted_observation_distributions
 end
@@ -183,12 +169,7 @@ end
 """
 Initialse the state space variance for a given set of time states and the ODE system's steady state
 """
-function initialise_state_space_variance(
-  steady_state,
-  τ;
-  mRNA_scaling = 20.0,
-  protein_scaling = 100.0,
-)
+function initialise_state_space_variance(steady_state, τ; mRNA_scaling = 20.0, protein_scaling = 100.0)
   function initial_variance!(du, u, p, t)
     du = zeros(typeof(τ), 2, 2)#[0.0 0.0; 0.0 0.0]
   end
@@ -204,13 +185,7 @@ end
 """
 Initialse the off diagonals for a given set of time states and the ODE system's steady state
 """
-function initialise_off_diagonals(
-  steady_state,
-  τ,
-  off_diagonal_steps;
-  mRNA_scaling = 20.0,
-  protein_scaling = 100.0,
-)
+function initialise_off_diagonals(steady_state, τ, off_diagonal_steps; mRNA_scaling = 20.0, protein_scaling = 100.0)
   off_diagonal_timestep = τ / off_diagonal_steps
   number_of_offdiagonal_timepoints = off_diagonal_steps + 1
   off_diagonals = CircularBuffer{AbstractVector{SolutionObject}}(number_of_offdiagonal_timepoints)
@@ -261,9 +236,7 @@ and then updates them with kalman_update_step.
     repression threshold, hill coefficient, mRNA degradation rate,protein degradation rate, basal transcription rate,
     translation rate, time delay.
 
-- `observation_transform`: A 1 x 2 matrix corresponding to the transformation from ob
-
-served data to molecule number, for mRNA and protein
+- `observation_transform`: A 1 x 2 matrix corresponding to the transformation from observed data to molecule number, for mRNA and protein
     respectively.
 
 - `measurement_variance`: The variance in our measurement. This is given by Sigma epsilon in Calderazzo et. al. (2018).
@@ -287,8 +260,7 @@ function kalman_filter_state_space_initialisation(
   τ = model_parameters[7]
   means = initialise_state_space_mean(steady_state, τ)
   variances = initialise_state_space_variance(steady_state, τ)
-  off_diagonals, off_diagonal_timepoints, off_diagonal_timestep =
-    initialise_off_diagonals(steady_state, τ, off_diagonal_steps)
+  off_diagonals, off_diagonal_timepoints, off_diagonal_timestep = initialise_off_diagonals(steady_state, τ, off_diagonal_steps)
 
   observation_time_step = protein_at_observations[2, 1] - protein_at_observations[1, 1]
   current_time = protein_at_observations[1, 1]
@@ -309,14 +281,11 @@ function kalman_filter_state_space_initialisation(
   )
 
   # initialise distributions
-  predicted_observation_distributions =
-    zeros(typeof(τ), length(system_state.observations), 2)
-  predicted_observation_distributions[1, :] .=
-    distribution_prediction(system_state, observation_transform, measurement_variance)
+  predicted_observation_distributions = zeros(typeof(τ), length(system_state.observations), 2)
+  predicted_observation_distributions[1, :] .= distribution_prediction(system_state, observation_transform, measurement_variance)
 
   # update the past ("negative time")
-  system_state =
-    kalman_update_step!(system_state, measurement_variance, observation_transform)
+  system_state = kalman_update_step!(system_state, measurement_variance, observation_transform)
 
   return system_state, predicted_observation_distributions
 end
@@ -414,8 +383,7 @@ function get_off_diagonal_at_time_combination(time_1, time_2, system_state)
     end
   end
 
-  interpolated_values =
-    linear_interpolation(system_state.off_diagonal_timepoints, past_values, extrapolation_bc = Line()) # extrapolate for any small bound errors
+  interpolated_values = linear_interpolation(system_state.off_diagonal_timepoints, past_values, extrapolation_bc = Line()) # extrapolate for any small bound errors
 
   return interpolated_values(min_time)
 
@@ -437,17 +405,11 @@ function predict_state_space_mean!(
   function state_space_mean_RHS(du, u, h, p, t)
     past_time = t - system_state.delay
     past_protein = last(h(p, past_time))
-    # println(past_time, ", ",past_protein)
-
-    du .=
-      [-p[3] 0; p[6] -p[4]] * u + [p[5] * hill_function(past_protein, p[1], p[2]); 0]
+    du .= [-p[3] 0; p[6] -p[4]] * u + [p[5] * hill_function(past_protein, p[1], p[2]); 0]
   end
 
   protein_history(p, t) = get_mean_at_time(t, system_state)
-  tspan = (
-    system_state.current_time,
-    system_state.current_time + system_state.observation_time_step,
-  )
+  tspan = (system_state.current_time, system_state.current_time + system_state.observation_time_step)
 
   if typeof(system_state.delay) <: AbstractFloat
     lags = system_state.delay
@@ -465,22 +427,10 @@ function predict_state_space_mean!(
   )
 
   if adaptive
-    mean_solution = solve(
-      mean_prob,
-      MethodOfSteps(alg),
-      reltol = relative_tolerance,
-      abstol = absolute_tolerance,
-    )
+    mean_solution = solve(mean_prob, MethodOfSteps(alg), reltol = relative_tolerance, abstol = absolute_tolerance)
   else
-    mean_solution = solve(
-      mean_prob,
-      MethodOfSteps(alg),
-      dt = euler_dt,
-      adaptive = false,
-      saveat = euler_dt,
-      dtmin = euler_dt,
-      dtmax = euler_dt,
-    )
+    mean_solution =
+      solve(mean_prob, MethodOfSteps(alg), dt = euler_dt, adaptive = false, saveat = euler_dt, dtmin = euler_dt, dtmax = euler_dt)
   end
 
   mean_solution_object = SolutionObject(t -> mean_solution(t), tspan)
@@ -504,21 +454,14 @@ function propagate_existing_off_diagonals!(
   diag_tspan = (current_time, next_end_time)
 
   # we want to do P(s,t) -> P(s,t+nΔt) for s = t-τ:t
-  for (off_diagonal_index, intermediate_time) in
-      enumerate(system_state.off_diagonal_timepoints)
+  for (off_diagonal_index, intermediate_time) in enumerate(system_state.off_diagonal_timepoints)
     # P(s,t)
-    covariance_matrix_intermediate_to_current = get_off_diagonal_at_time_combination(
-      intermediate_time,
-      current_time,
-      system_state,
-    )
+    covariance_matrix_intermediate_to_current =
+      get_off_diagonal_at_time_combination(intermediate_time, current_time, system_state)
 
     # covariance_matrix_intermediate_to_current = zeros(2,2)
 
-    history(s, t) = get_specific_off_diagonal_value_at_time(
-      t,
-      system_state.off_diagonals[off_diagonal_index],
-    )
+    history(s, t) = get_specific_off_diagonal_value_at_time(t, system_state.off_diagonals[off_diagonal_index])
 
     # history(s, t) = zeros(2,2)
     if typeof(system_state.delay) <: AbstractFloat
@@ -538,12 +481,7 @@ function propagate_existing_off_diagonals!(
     )
 
     if adaptive
-      off_diag_solution = solve(
-        off_diag_prob,
-        MethodOfSteps(alg),
-        reltol = relative_tolerance,
-        abstol = absolute_tolerance,
-      )
+      off_diag_solution = solve(off_diag_prob, MethodOfSteps(alg), reltol = relative_tolerance, abstol = absolute_tolerance)
     else
       off_diag_solution = solve(
         off_diag_prob,
@@ -556,10 +494,7 @@ function propagate_existing_off_diagonals!(
       )
     end
 
-    push!(
-      system_state.off_diagonals[off_diagonal_index],
-      SolutionObject(t -> off_diag_solution(t), diag_tspan),
-    )
+    push!(system_state.off_diagonals[off_diagonal_index], SolutionObject(t -> off_diag_solution(t), diag_tspan))
 
   end
 
@@ -578,37 +513,25 @@ function propagate_new_off_diagonals!(
   absolute_tolerance,
 )
   # we want to do P(s,s) -> P(s,t+nΔt) for s = t:t+Δt
-  current_off_diagonal_time_point =
-    last_off_diagonal_timepoint + system_state.off_diagonal_timestep
+  current_off_diagonal_time_point = last_off_diagonal_timepoint + system_state.off_diagonal_timestep
   while current_off_diagonal_time_point <= next_end_time
     diag_tspan = (current_off_diagonal_time_point, next_end_time)
 
     # P(s,s)
-    initial_variance =
-      get_variance_at_time(current_off_diagonal_time_point, system_state)
+    initial_variance = get_variance_at_time(current_off_diagonal_time_point, system_state)
 
     off_diag_solution = t -> initial_variance
 
     variance_tspan = (current_off_diagonal_time_point, current_off_diagonal_time_point)
-    push!(
-      system_state.off_diagonals,
-      [SolutionObject(off_diag_solution, variance_tspan)],
-    )
+    push!(system_state.off_diagonals, [SolutionObject(off_diag_solution, variance_tspan)])
     push!(system_state.off_diagonal_timepoints, current_off_diagonal_time_point)
 
-    interpolation_object = generate_off_diagonal_history_function(
-      current_off_diagonal_time_point,
-      system_state,
-    )
+    interpolation_object = generate_off_diagonal_history_function(current_off_diagonal_time_point, system_state)
     history(s, t) = interpolation_object(t)
 
     past_function(t) = interpolation_object(t)
-    history_tspan =
-      (first(system_state.off_diagonal_timepoints), current_off_diagonal_time_point)
-    pushfirst!(
-      last(system_state.off_diagonals),
-      SolutionObject(past_function, history_tspan),
-    )
+    history_tspan = (first(system_state.off_diagonal_timepoints), current_off_diagonal_time_point)
+    pushfirst!(last(system_state.off_diagonals), SolutionObject(past_function, history_tspan))
 
     if typeof(system_state.delay) <: AbstractFloat
       lags = system_state.delay
@@ -628,12 +551,7 @@ function propagate_new_off_diagonals!(
       )
 
       if adaptive
-        off_diag_solution = solve(
-          off_diag_prob,
-          MethodOfSteps(alg),
-          reltol = relative_tolerance,
-          abstol = absolute_tolerance,
-        )
+        off_diag_solution = solve(off_diag_prob, MethodOfSteps(alg), reltol = relative_tolerance, abstol = absolute_tolerance)
       else
         off_diag_solution = solve(
           off_diag_prob,
@@ -646,10 +564,7 @@ function propagate_new_off_diagonals!(
         )
       end
 
-      push!(
-        last(system_state.off_diagonals),
-        SolutionObject(t -> off_diag_solution(t), diag_tspan),
-      )
+      push!(last(system_state.off_diagonals), SolutionObject(t -> off_diag_solution(t), diag_tspan))
     end
 
     current_off_diagonal_time_point += system_state.off_diagonal_timestep
@@ -674,22 +589,10 @@ function propagate_variance!(
   variance_prob = ODEProblem(variance_RHS, initial_variance, tspan, model_parameters)
 
   if adaptive
-    variance_solution = solve(
-      variance_prob,
-      alg,
-      reltol = relative_tolerance,
-      abstol = absolute_tolerance,
-    )
+    variance_solution = solve(variance_prob, alg, reltol = relative_tolerance, abstol = absolute_tolerance)
   else
-    variance_solution = solve(
-      variance_prob,
-      alg,
-      dt = euler_dt,
-      adaptive = false,
-      saveat = euler_dt,
-      dtmin = euler_dt,
-      dtmax = euler_dt,
-    )
+    variance_solution =
+      solve(variance_prob, alg, dt = euler_dt, adaptive = false, saveat = euler_dt, dtmin = euler_dt, dtmax = euler_dt)
   end
 
   variance_solution_object = SolutionObject(t -> variance_solution(t), tspan)
@@ -724,8 +627,7 @@ function predict_variance_and_off_diagonals!(
     current_mean = get_mean_at_time(t, system_state)
 
     # P(t-τ, t)
-    past_to_now_diagonal_variance =
-      get_off_diagonal_at_time_combination(past_time, t, system_state)
+    past_to_now_diagonal_variance = get_off_diagonal_at_time_combination(past_time, t, system_state)
 
     delayed_jacobian = construct_delayed_jacobian(model_parameters, past_protein)
 
@@ -755,9 +657,7 @@ function predict_variance_and_off_diagonals!(
       covariance_matrix_intermediate_to_past = history(s, past_time)
     end
 
-    dcovariance .=
-      covariance * instant_jacobian' .+
-      covariance_matrix_intermediate_to_past * delayed_jacobian'
+    dcovariance .= covariance * instant_jacobian' .+ covariance_matrix_intermediate_to_past * delayed_jacobian'
   end
 
   # if typeof(system_state.delay) <: AbstractFloat
@@ -772,11 +672,9 @@ function predict_variance_and_off_diagonals!(
   next_observation_time = current_time + system_state.observation_time_step
 
   if typeof(system_state.delay) <: AbstractFloat
-    next_end_time =
-      min(next_observation_time, last_off_diagonal_timepoint + system_state.delay)
+    next_end_time = min(next_observation_time, last_off_diagonal_timepoint + system_state.delay)
   else
-    next_end_time =
-      min(next_observation_time, last_off_diagonal_timepoint.value + system_state.delay.value)
+    next_end_time = min(next_observation_time, last_off_diagonal_timepoint.value + system_state.delay.value)
   end
 
   while current_time < next_observation_time
@@ -888,26 +786,17 @@ function updatefunc(old, update)
   return x -> update(x) + old(x)
 end
 
-function update_mean!(
-  system_state,
-  most_recent_off_diagonal,
-  observation_transform,
-  helper_inverse,
-)
+function update_mean!(system_state, most_recent_off_diagonal, observation_transform, helper_inverse)
   most_recent_mean = get_mean_at_time(system_state.current_time, system_state)
-  adaptation_coefficient(t) =
-    most_recent_off_diagonal(t) * observation_transform' * helper_inverse
+  adaptation_coefficient(t) = most_recent_off_diagonal(t) * observation_transform' * helper_inverse
 
   # need to copy current_observation since it get's updated later
   observation = system_state.current_observation
 
-  update_f =
-    t -> adaptation_coefficient(t) *
-         (observation - dot(observation_transform, most_recent_mean))
+  update_f = t -> adaptation_coefficient(t) * (observation - dot(observation_transform, most_recent_mean))
 
   # TODO it's really strange that this works with floor, when I think it should be ceil
-  delay_length =
-    max(1, floor(Int, system_state.delay / system_state.observation_time_step))
+  delay_length = max(1, floor(Int, system_state.delay / system_state.observation_time_step))
   for index in max(1, length(system_state.means) - delay_length):length(system_state.means)
     updated_function = updatefunc(system_state.means[index].at_time, update_f)
     system_state.means[index] = SolutionObject(updated_function, system_state.means[index].tspan)
@@ -916,12 +805,7 @@ function update_mean!(
   return system_state
 end
 
-function update_variance!(
-  system_state,
-  most_recent_off_diagonal,
-  observation_transform,
-  helper_inverse,
-)
+function update_variance!(system_state, most_recent_off_diagonal, observation_transform, helper_inverse)
   update_f =
     t ->
       -most_recent_off_diagonal(t) *
@@ -938,17 +822,11 @@ function update_variance!(
   return system_state
 end
 
-function update_off_diagonals!(
-  system_state,
-  most_recent_off_diagonal,
-  observation_transform,
-  helper_inverse,
-)
+function update_off_diagonals!(system_state, most_recent_off_diagonal, observation_transform, helper_inverse)
 
   for (off_diagonal_index, off_diagonal_entry) in enumerate(system_state.off_diagonals)
 
-    this_off_diagonal_timepoint =
-      system_state.off_diagonal_timepoints[off_diagonal_index]
+    this_off_diagonal_timepoint = system_state.off_diagonal_timepoints[off_diagonal_index]
 
     update_f =
       t ->
@@ -960,8 +838,7 @@ function update_off_diagonals!(
 
 
     # TODO Figure out why this is true
-    delay_length =
-      max(2, round(Int, system_state.delay / system_state.observation_time_step) + 2)
+    delay_length = max(2, round(Int, system_state.delay / system_state.observation_time_step) + 2)
 
     for index in max(1, length(off_diagonal_entry) - delay_length):length(off_diagonal_entry) # TODO tidy up range
       updated_function = updatefunc(off_diagonal_entry[index].at_time, update_f)
@@ -973,12 +850,10 @@ function update_off_diagonals!(
 end
 
 function get_most_recent_offdiagonal_as_function(system_state::SystemState)
-  most_recent_off_diagonals =
-    fill(zeros(typeof(system_state.delay), 2, 2), length(system_state.off_diagonal_timepoints))
+  most_recent_off_diagonals = fill(zeros(typeof(system_state.delay), 2, 2), length(system_state.off_diagonal_timepoints))
 
   for (off_diagonal_index, off_diagonal_entry) in enumerate(system_state.off_diagonals)
-    most_recent_off_diagonals[off_diagonal_index] =
-      last(off_diagonal_entry)(system_state.current_time)
+    most_recent_off_diagonals[off_diagonal_index] = last(off_diagonal_entry)(system_state.current_time)
   end
 
   return linear_interpolation(
@@ -993,28 +868,14 @@ function generate_off_diagonal_history_function(off_diagonal_time, system_state)
   required_off_diagonals = fill(zeros(typeof(system_state.delay), 2, 2), length(system_state.off_diagonal_timepoints))
 
   for (off_diagonal_index, off_diagonal_entry) in enumerate(system_state.off_diagonals)
-    required_off_diagonals[off_diagonal_index] =
-      last(off_diagonal_entry)(off_diagonal_time) # transpose
+    required_off_diagonals[off_diagonal_index] = last(off_diagonal_entry)(off_diagonal_time) # transpose
   end
 
-  return linear_interpolation(
-    copy(system_state.off_diagonal_timepoints),
-    required_off_diagonals,
-    extrapolation_bc = Line(),
-  )
+  return linear_interpolation(copy(system_state.off_diagonal_timepoints), required_off_diagonals, extrapolation_bc = Line())
 end
 
-function calculate_helper_inverse(
-  predicted_final_covariance_matrix,
-  observation_transform,
-  measurement_variance,
-)
-  1.0 / (
-    dot(
-      observation_transform,
-      predicted_final_covariance_matrix * observation_transform',
-    ) + measurement_variance
-  )
+function calculate_helper_inverse(predicted_final_covariance_matrix, observation_transform, measurement_variance)
+  1.0 / (dot(observation_transform, predicted_final_covariance_matrix * observation_transform') + measurement_variance)
 end
 
 """
@@ -1040,37 +901,18 @@ function kalman_update_step!(system_state, measurement_variance, observation_tra
   most_recent_variance = last(system_state.variances)(system_state.current_time)
 
   # This is (FP_{t+Δt}F^T + Σ_ϵ)^{-1}
-  helper_inverse = calculate_helper_inverse(
-    most_recent_variance,
-    observation_transform,
-    measurement_variance,
-  )
+  helper_inverse = calculate_helper_inverse(most_recent_variance, observation_transform, measurement_variance)
 
   # this is P(s, t+Δt) as a function of s
   most_recent_off_diagonal = get_most_recent_offdiagonal_as_function(system_state)
 
   # println("Updates:")
 
-  system_state = update_mean!(
-    system_state,
-    most_recent_off_diagonal,
-    observation_transform,
-    helper_inverse,
-  )
+  system_state = update_mean!(system_state, most_recent_off_diagonal, observation_transform, helper_inverse)
 
-  system_state = update_variance!(
-    system_state,
-    most_recent_off_diagonal,
-    observation_transform,
-    helper_inverse,
-  )
+  system_state = update_variance!(system_state, most_recent_off_diagonal, observation_transform, helper_inverse)
 
-  system_state = update_off_diagonals!(
-    system_state,
-    most_recent_off_diagonal,
-    observation_transform,
-    helper_inverse,
-  )
+  system_state = update_off_diagonals!(system_state, most_recent_off_diagonal, observation_transform, helper_inverse)
   # println()
 
   return system_state

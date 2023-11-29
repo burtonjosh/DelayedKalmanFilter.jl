@@ -31,25 +31,21 @@ function calculate_log_likelihood_at_parameter_point(
   relative_tolerance = 1e-6,
   absolute_tolerance = 1e-6,
 ) where {T <: AbstractFloat}
-  size(protein_at_observations, 2) == 2 ||
-    throw(ArgumentError("observation matrix must be N × 2"))
+  size(protein_at_observations, 2) == 2 || throw(ArgumentError("observation matrix must be N × 2"))
 
   @assert all(model_parameters .>= 0.0) "all model parameters must be positive"
-  _, distributions =
-    kalman_filter(
-      protein_at_observations,
-      model_parameters,
-      measurement_variance;
-      adaptive,
-      off_diagonal_steps,
-      alg,
-      euler_dt,
-      relative_tolerance,
-      absolute_tolerance,
-    )
+  _, distributions = kalman_filter(
+    protein_at_observations,
+    model_parameters,
+    measurement_variance;
+    adaptive,
+    off_diagonal_steps,
+    alg,
+    euler_dt,
+    relative_tolerance,
+    absolute_tolerance,
+  )
   observations = protein_at_observations[:, 2]
 
-  return sum(
-    logpdf.(Normal.(distributions[:, 1], sqrt.(distributions[:, 2])), observations),
-  )
+  return sum(logpdf.(Normal.(distributions[:, 1], sqrt.(distributions[:, 2])), observations))
 end
