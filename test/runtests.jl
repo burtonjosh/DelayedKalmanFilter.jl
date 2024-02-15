@@ -9,4 +9,3 @@ end
 @safetestset "ODE tests" begin
   include("ode_tests.jl")
 end
-
