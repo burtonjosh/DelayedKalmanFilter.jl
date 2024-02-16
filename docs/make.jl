@@ -20,4 +20,4 @@ makedocs(;
   ],
 )
 
-deploydocs(; repo = "github.com/burtonjosh/DelayedKalmanFilter.jl", devbranch = "main")
+deploydocs(repo = "github.com/burtonjosh/DelayedKalmanFilter.jl")
