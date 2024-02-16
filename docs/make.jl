@@ -6,7 +6,7 @@ DocMeta.setdocmeta!(DelayedKalmanFilter, :DocTestSetup, :(using DelayedKalmanFil
 makedocs(;
   modules = [DelayedKalmanFilter],
   authors = "Joshua Burton",
-  repo = "https://github.com/burtonjosh/DelayedKalmanFilter.jl/blob/{commit}{path}#L{line}",
+  repo = Remotes.GitHub("burtonjosh", "DelayedKalmanFilter"),
   sitename = "DelayedKalmanFilter.jl",
   format = Documenter.HTML(;
     prettyurls = get(ENV, "CI", "false") == "true",
@@ -20,4 +20,4 @@ makedocs(;
   ],
 )
 
-deploydocs(; repo = "github.com/burtonjosh/DelayedKalmanFilter.jl", devbranch = "main")
+deploydocs(repo = "github.com/burtonjosh/DelayedKalmanFilter.jl")
