@@ -17,6 +17,11 @@ SteadyStateDiffEq = "9672c7b4-1e72-59bd-8a11-6ac3964bc41f"
 
 [compat]
 DataStructures = "0.18"
+SteadyStateDiffEq = "2"
+DelayDiffEq = "5"
+OrdinaryDiffEq = "6"
+DelimitedFiles = "1"
+NonlinearSolve = "3"
 
 [extras]
 SafeTestsets = "1bc83da4-3b8d-516f-aca4-4fe02f6d838f"
