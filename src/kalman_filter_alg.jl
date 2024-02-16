@@ -93,15 +93,15 @@ julia> model_parameters = [300.0, 4.0, 0.1, 0.1, 1.0, 1.0, 15.0];
 julia> measurement_variance = 1000.0;
 
 julia> system_state, distributions = kalman_filter(
-           protein,
-           model_parameters,
-           measurement_variance
+         protein,
+         model_parameters,
+         measurement_variance
        );
 
-julia> distributions[1,:]
+julia> distributions[1, :]
 2-element Vector{Float64}:
-    98.8356511456267
- 10883.56511456267
+    98.83526916576103
+ 10883.526916576104
 ```
 """
 function kalman_filter(
