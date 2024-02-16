@@ -37,21 +37,21 @@ p = [3407.99, 5.17, log(2)/30, log(2)/90, 15.86, 1.27, 30.];
 tspan=(0.,1720.);
 
 prob = SDDEProblem(hes_model_drift, hes_model_noise, [30.,500.], h, tspan, p; saveat=10);
-sol = solve(prob,RKMilCommute());
+sol = solve(prob, RKMilCommute());
 
-unobserved_data = Array(sol)[:,100:end];
-measurement_std = 0.1*mean(unobserved_data[2,:])
+unobserved_data = Array(sol)[:, 100:end];
+measurement_std = 0.1*mean(unobserved_data[2, :])
 
-protein = unobserved_data[2,:] + 
-    measurement_std*randn(length(unobserved_data[2,:]));
+protein = unobserved_data[2, :] + 
+    measurement_std*randn(length(unobserved_data[2, :]));
 
 times = 0:10:730
-protein_observations = hcat(times,protein)
+protein_observations = hcat(times, protein)
 
 # unobserved protein
 plot(
     times,
-    unobserved_data[2,:],
+    unobserved_data[2, :],
     label="Unobserved",
     linewidth=2,
     color=TolVibrantBlue)
