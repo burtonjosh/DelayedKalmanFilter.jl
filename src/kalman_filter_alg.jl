@@ -100,8 +100,8 @@ julia> system_state, distributions = kalman_filter(
 
 julia> distributions[1,:]
 2-element Vector{Float64}:
-    98.83535976369208
- 10883.535976369209
+    98.8356511456267
+ 10883.56511456267
 ```
 """
 function kalman_filter(
