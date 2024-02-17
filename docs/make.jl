@@ -6,7 +6,7 @@ DocMeta.setdocmeta!(DelayedKalmanFilter, :DocTestSetup, :(using DelayedKalmanFil
 makedocs(;
   modules = [DelayedKalmanFilter],
   authors = "Joshua Burton",
-  repo = Remotes.GitHub("burtonjosh", "DelayedKalmanFilter"),
+  repo = Remotes.GitHub("burtonjosh", "DelayedKalmanFilter.jl"),
   sitename = "DelayedKalmanFilter.jl",
   format = Documenter.HTML(;
     prettyurls = get(ENV, "CI", "false") == "true",
