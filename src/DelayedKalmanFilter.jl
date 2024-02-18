@@ -1,11 +1,8 @@
 module DelayedKalmanFilter
 
-using DataStructures
 using DelimitedFiles
-using DelayDiffEq, OrdinaryDiffEq, SteadyStateDiffEq
+using OrdinaryDiffEq, SteadyStateDiffEq
 using Distributions
-using ForwardDiff
-using Interpolations
 using LinearAlgebra
 using NonlinearSolve
 
