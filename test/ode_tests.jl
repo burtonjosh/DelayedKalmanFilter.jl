@@ -1,5 +1,4 @@
 using DelayedKalmanFilter: calculate_steady_state_of_ode
-using DelimitedFiles
 using Test
 
 @testset "ODE tests" begin

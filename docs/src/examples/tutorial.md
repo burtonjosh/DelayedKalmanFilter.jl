@@ -1,6 +1,6 @@
 # Tutorial
 
-The package exports two functions, [`kalman_filter`](@ref) and [`calculate_log_likelihood_at_parameter_point`](@ref).
+The package exports two functions, [`kalman_filter`](@ref) and [`calculate_log_likelihood`](@ref).
 
 Let's load some colours from [Paul Tol](https://personal.sron.nl/~pault/) and the [`Plots`](https://docs.juliaplots.org/stable/) package for plotting.
 
@@ -128,15 +128,15 @@ plot!(
 plot!(xlabel = "Time (minutes)", ylabel = "Protein molecule number")
 ```
 
-We can also use the convenience function [`calculate_log_likelihood_at_parameter_point`](@ref) to get a log-likelihood value for this specific (ground truth) parameter set.
+We can also use the convenience function [`calculate_log_likelihood`](@ref) to get a log-likelihood value for this specific (ground truth) parameter set.
 
 ```@example tutorial
-calculate_log_likelihood_at_parameter_point(protein_observations, p, measurement_std^2)
+calculate_log_likelihood(protein_observations, p, measurement_std^2)
 ```
 
 Using a different parameter set should give us a smaller value for the log-likelihood.
 
 ```@example tutorial
 p_wrong = [2407.57, 3.4, log(2)/30, log(2)/90, 5.6, 21.7, 12.];
-calculate_log_likelihood_at_parameter_point(protein_observations, p_wrong, measurement_std^2)
+calculate_log_likelihood(protein_observations, p_wrong, measurement_std^2)
 ```

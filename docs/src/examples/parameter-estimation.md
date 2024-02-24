@@ -83,7 +83,7 @@ Let's first assume we know all values but one, in this case ``\tau``. A very sim
 ```@example parameter-estimation
 time_delays = LinRange(1., 45., 50)
 many_p = [[3407.99, 5.17, log(2)/30, log(2)/90, 15.86, 1.27, i] for i in time_delays]
-ll_delays = [calculate_log_likelihood_at_parameter_point(protein_observations, p, measurement_std^2) for p in many_p]
+ll_delays = [calculate_log_likelihood(protein_observations, p, measurement_std^2) for p in many_p]
 
 plot(time_delays, ll_delays)
 plot!(xlabel = "τ", ylabel = "log-likelihood")
