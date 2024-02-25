@@ -66,13 +66,9 @@ julia> distributions[1, :]
 ```
 """
 function kalman_filter(data, model_params, measurement_variance; ode_solver = Tsit5())
-  # F in the paper
-  observation_transform = [0.0 1.0]
+  observation_transform = [1.0]
   # Jacobian of the system
-  instant_jac = [
-    -model_params[3] 0.0
-    model_params[6] -model_params[4]
-  ]
+  instant_jac = [-model_params[1]]
 
   # initialise state space and distribution predictions
   system_state, predicted_observation_distributions =
@@ -84,11 +80,10 @@ function kalman_filter(data, model_params, measurement_variance; ode_solver = Ts
     system_state.next_time = time
     system_state = prediction_step!(system_state, model_params, instant_jac; ode_solver)
 
+    system_state = update_step!(system_state, observation, measurement_variance, observation_transform)
     # Record the predicted mean and variance for our likelihood
     predicted_observation_distributions[observation_index + 1, :] .=
       distribution_prediction(system_state, observation_transform, measurement_variance)
-
-    system_state = update_step!(system_state, observation, measurement_variance, observation_transform)
   end
   return system_state, predicted_observation_distributions
 end
@@ -120,21 +115,20 @@ function state_space_initialisation(data, params, observation_transform, measure
 
   # construct system state space
   mean = steady_state
-  variance = diagm(mean .* [20.0, 100.0])
+  variance = mean * 20.0
   system_state = SystemState(mean, variance, data[1, 1], data[2, 1])
+
+  # inital update step
+  update_step!(system_state, data[1, 2], measurement_variance, observation_transform)
 
   # initialise distributions
   predicted_observation_distributions = zeros(eltype(mean), first(size(data)), 2)
   predicted_observation_distributions[1, :] .= distribution_prediction(system_state, observation_transform, measurement_variance)
-
-  # inital update step
-  update_step!(system_state, data[1, 2], measurement_variance, observation_transform)
   return system_state, predicted_observation_distributions
 end
 
 function state_space_mean_RHS(du, u, p, t)
-  du[1] = -p[3] * u[1] + p[5] * hill_function(u[2], p[1], p[2])
-  du[2] = p[6] * u[1] - p[4] * u[2]
+  du[1] = -p[1] * u[1]
   nothing
 end
 
@@ -150,21 +144,13 @@ function predict_mean!(system_state, model_params; ode_solver)
   system_state, mean_solution
 end
 
-function calculate_noise_variance(params, mean_solution, t)
-  [
-    (params[3] * first(mean_solution(t)))+(params[5] * hill_function(first(mean_solution(t)), params[1], params[2])) 0.0
-    0.0 (params[6] * first(mean_solution(t)))+(params[4] * last(mean_solution(t)))
-  ]
-end
-
 """
 Predict state space variance to the next observation time index.
 """
-function predict_variance!(system_state, mean_solution, model_params, instant_jac; ode_solver)
+function predict_variance!(system_state, model_params, instant_jac; ode_solver)
   # TODO this currently has to be nested since we don't pass current_mean as a parameter, is this possible / faster?
-  function variance_RHS(dvariance, current_variance, params, t)
-    variance_of_noise = calculate_noise_variance(params, mean_solution, t)
-    dvariance .= instant_jac * current_variance + current_variance * instant_jac' + variance_of_noise
+  function variance_RHS(dvariance, current_variance, p, t)
+    dvariance .= instant_jac .* current_variance + current_variance .* instant_jac' .+ p[2]
   end
 
   tspan = (system_state.current_time, system_state.next_time)
@@ -190,8 +176,8 @@ Obtain the Kalman filter prediction about a future observation, `rho_{t+Δt}` an
 
 """
 function prediction_step!(system_state, params, instant_jac; ode_solver)
-  system_state, mean_solution = predict_mean!(system_state, params; ode_solver)
-  system_state = predict_variance!(system_state, mean_solution, params, instant_jac; ode_solver)
+  system_state, _ = predict_mean!(system_state, params; ode_solver)
+  system_state = predict_variance!(system_state, params, instant_jac; ode_solver)
   # update current_time
   system_state.current_time = system_state.next_time
   system_state
@@ -208,7 +194,7 @@ end
 
 function update_variance!(system_state, observation_transform, helper_inverse)
   system_state.variance -=
-    system_state.variance * observation_transform' * observation_transform * system_state.variance * helper_inverse
+    system_state.variance .* observation_transform' .* observation_transform .* system_state.variance * helper_inverse
   system_state
 end
 
