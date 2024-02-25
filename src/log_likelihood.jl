@@ -23,10 +23,6 @@ Returns
 function calculate_log_likelihood(data, params, measurement_variance; ode_solver = Tsit5())
   size(data, 2) == 2 || throw(ArgumentError("observation matrix must be N × 2"))
   all(params .>= 0.0) || throw(ErrorException("all model parameters must be positive"))
-  try
-    _, distributions = kalman_filter(data, params, measurement_variance; ode_solver)
-    logpdf(MvNormal(distributions[:, 1], diagm(distributions[:, 2])), data[:, 2])
-  catch e
-    -Inf
-  end
+  _, distributions = kalman_filter(data, params, measurement_variance; ode_solver)
+  logpdf(MvNormal(distributions[:, 1], diagm(distributions[:, 2])), data[:, 2])
 end

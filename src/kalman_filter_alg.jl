@@ -84,11 +84,11 @@ function kalman_filter(data, model_params, measurement_variance; ode_solver = Ts
     system_state.next_time = time
     system_state = prediction_step!(system_state, model_params, instant_jac; ode_solver)
 
-    system_state = update_step!(system_state, observation, measurement_variance, observation_transform)
-
     # Record the predicted mean and variance for our likelihood
     predicted_observation_distributions[observation_index + 1, :] .=
       distribution_prediction(system_state, observation_transform, measurement_variance)
+
+    system_state = update_step!(system_state, observation, measurement_variance, observation_transform)
   end
   return system_state, predicted_observation_distributions
 end
@@ -123,13 +123,12 @@ function state_space_initialisation(data, params, observation_transform, measure
   variance = diagm(mean .* [20.0, 100.0])
   system_state = SystemState(mean, variance, data[1, 1], data[2, 1])
 
-  # inital update step
-  update_step!(system_state, data[1, 2], measurement_variance, observation_transform)
-
   # initialise distributions
   predicted_observation_distributions = zeros(eltype(mean), first(size(data)), 2)
   predicted_observation_distributions[1, :] .= distribution_prediction(system_state, observation_transform, measurement_variance)
 
+  # inital update step
+  update_step!(system_state, data[1, 2], measurement_variance, observation_transform)
   return system_state, predicted_observation_distributions
 end
 
