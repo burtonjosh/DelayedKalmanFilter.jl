@@ -20,30 +20,9 @@ Returns
 
 - `log_likelihood::AbstractFloat`.
 """
-function calculate_log_likelihood_at_parameter_point(
-  protein_at_observations,
-  model_parameters,
-  measurement_variance;
-  adaptive = false,
-  alg = Euler(),
-  euler_dt = 1.0,
-  relative_tolerance = 1e-6,
-  absolute_tolerance = 1e-6,
-)
-  size(protein_at_observations, 2) == 2 || throw(ArgumentError("observation matrix must be N × 2"))
-
-  @assert all(model_parameters .>= 0.0) "all model parameters must be positive"
-  _, distributions = kalman_filter(
-    protein_at_observations,
-    model_parameters,
-    measurement_variance;
-    adaptive,
-    alg,
-    euler_dt,
-    relative_tolerance,
-    absolute_tolerance,
-  )
-  observations = protein_at_observations[:, 2]
-
-  return sum(logpdf.(Normal.(distributions[:, 1], sqrt.(distributions[:, 2])), observations))
+function calculate_log_likelihood(data, params, measurement_variance; ode_solver = Tsit5())
+  size(data, 2) == 2 || throw(ArgumentError("observation matrix must be N × 2"))
+  all(params .>= 0.0) || throw(ErrorException("all model parameters must be positive"))
+  _, distributions = kalman_filter(data, params, measurement_variance; ode_solver)
+  logpdf(MvNormal(distributions[:, 1], diagm(distributions[:, 2])), data[:, 2])
 end

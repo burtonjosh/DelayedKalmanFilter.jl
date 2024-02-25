@@ -13,6 +13,6 @@ include("check_kalman_filter.jl")
 
 export kalman_filter, check_filter
 export get_mean_at_time, get_variance_at_time
-export calculate_log_likelihood_at_parameter_point
+export calculate_log_likelihood
 
 end

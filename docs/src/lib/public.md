@@ -13,6 +13,6 @@ Pages = ["public.md"]
 ## Public Interface
 
 ```@docs
-calculate_log_likelihood_at_parameter_point
+calculate_log_likelihood
 kalman_filter
 ```
